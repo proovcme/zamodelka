@@ -21,6 +21,17 @@ export class FittingGenerator {
     const walls = elements.filter((elem) => elem.type === "wall");
     const grilles = elements.filter((elem) => elem.type === "terminal");
     const equipment = elements.filter((elem) => elem.type === "equipment");
+    
+    // Собираем все прочие элементы (двери, окна, мебель, электрику, сантехнику и т.д.)
+    const others = elements.filter((elem) => 
+      elem.type !== "duct" && 
+      elem.type !== "tray" && 
+      elem.type !== "pipe" && 
+      elem.type !== "wall" && 
+      elem.type !== "terminal" && 
+      elem.type !== "equipment" &&
+      elem.type !== "fitting"
+    );
 
     // Генерируем фасонные изделия отдельно для каждой системы
     const ductFittings = this.generateFittingsForType(ducts, "duct");
@@ -38,6 +49,7 @@ export class FittingGenerator {
       ...pipeFittings,
       ...grilles,
       ...equipment,
+      ...others,
     ];
   }
 
