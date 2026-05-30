@@ -778,6 +778,7 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
       }
       update();
     }
+  };
 
   // Синхронизация выбранных в интерфейсе параметров черчения в DuctDrawingTool
   const syncParamsToTool = () => {
