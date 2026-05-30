@@ -1074,6 +1074,10 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
           </bim-context-menu>
         </bim-button>
       </bim-toolbar-section> 
+
+      <bim-toolbar-section label="Платформа" icon="mdi:web">
+        <bim-button icon="mdi:web" tooltip-title="BIM.OVC.ME" tooltip-text="Открыть облачную BIM платформу Speckle" @click=${() => window.open("https://bim.ovc.me", "_blank")}></bim-button>
+      </bim-toolbar-section>
     </bim-toolbar>
   `;
 };
