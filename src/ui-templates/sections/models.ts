@@ -1,7 +1,6 @@
 import * as BUI from "@thatopen/ui";
 import * as CUI from "@thatopen/ui-obc";
 import * as OBC from "@thatopen/components";
-import { appIcons } from "../../globals";
 
 export interface ModelsPanelState {
   components: OBC.Components;
@@ -699,16 +698,15 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
           
           <bim-tab name="models" label="Модели" icon="mdi:cube" ?active=${activeTab === "models"} @click=${() => { (window as any).projectBrowserActiveTab = "models"; }}>
             <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.75rem; overflow: auto; height: 100%;">
-              <div style="font-weight: bold; font-size: 0.85rem; color: var(--bim-ui_bg-contrast-100); margin-bottom: 0.25rem;">IFC и фрагмент-подложки:</div>
-              <div style="display: flex; gap: 0.5rem;">
-                <bim-text-input @input=${onSearchModels} vertical placeholder="Поиск моделей..." debounce="200" style="flex: 1;"></bim-text-input>
-                <bim-button style="flex: 0;" icon=${appIcons.ADD}>
-                  <bim-context-menu style="gap: 0.25rem;">
-                    <bim-button label="Загрузить IFC" @click=${onAddIfcModel}></bim-button>
-                    <bim-button label="Загрузить Fragments" @click=${onAddFragmentsModel}></bim-button>
-                  </bim-context-menu> 
-                </bim-button>
+              <div style="font-weight: bold; font-size: 0.85rem; color: var(--bim-ui_bg-contrast-100); margin-bottom: 0.1rem;">IFC и фрагмент-подложки:</div>
+              
+              <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.2rem;">
+                <bim-button label="Загрузить IFC подложку" icon="mdi:file-upload" @click=${onAddIfcModel} style="--bim-ui_accent-base: #3b82f6;"></bim-button>
+                <bim-button label="Загрузить Fragments модель" icon="mdi:cube-send" @click=${onAddFragmentsModel}></bim-button>
               </div>
+
+              <bim-text-input @input=${onSearchModels} vertical placeholder="Поиск моделей..." debounce="200" style="width: 100%;"></bim-text-input>
+              
               <div style="margin-top: 0.5rem;">
                 ${modelsList}
               </div>
