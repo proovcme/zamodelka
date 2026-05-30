@@ -5,8 +5,8 @@ import { SmartSnap } from "../SmartSnap";
 
 export interface ElectricalElement {
   id: string;
-  type: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation";
-  kind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation";
+  type: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column";
+  kind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column";
   model: string;
   position: [number, number, number]; // в мм
   normal?: [number, number, number];
@@ -21,7 +21,7 @@ export class ElectricalPlacementTool {
   world: OBC.World;
 
   enabled = false;
-  activeKind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" = "socket";
+  activeKind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column" = "socket";
 
   projectElements: any[] = [];
   onElementsUpdated: () => void = () => {};
@@ -50,7 +50,7 @@ export class ElectricalPlacementTool {
     this.mousePlane.constant = -(elev / 1000);
   }
 
-  activate(kind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" = "socket") {
+  activate(kind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column" = "socket") {
     if (this.enabled && this.activeKind === kind) return;
 
     if (this.enabled) this.deactivate();
@@ -132,6 +132,9 @@ export class ElectricalPlacementTool {
     } else if (this.activeKind === "workstation") {
       geom = new THREE.BoxGeometry(1.6, 0.75, 0.8); // Рабочее место: Ш x В x Г
       color = 0x6366f1; // индиго
+    } else if (this.activeKind === "column") {
+      geom = new THREE.BoxGeometry(0.4, 3.0, 0.4); // Г x В x Ш
+      color = 0x9ca3af; // серый
     } else { // ac
       geom = new THREE.BoxGeometry(0.22, 0.28, 0.85);
       color = 0xf1f5f9;
@@ -280,6 +283,8 @@ export class ElectricalPlacementTool {
 
         if (this.activeKind === "panel") {
           this.previewMesh.position.y += 0.3;
+        } else if (this.activeKind === "column") {
+          this.previewMesh.position.y += 1.5;
         }
 
         this.previewMesh.rotation.y = this.rotationAngle;
@@ -411,6 +416,15 @@ export class ElectricalPlacementTool {
         kind: "workstation",
         model: "Рабочее место (стол+стул+ПК)",
         position: [this.lastSnappedPoint.x * 1000, this.lastSnappedPoint.y * 1000, this.lastSnappedPoint.z * 1000],
+        rotation: Math.round(this.rotationAngle * (180 / Math.PI)),
+      };
+    } else if (this.activeKind === "column") {
+      newElem = {
+        id,
+        type: "column",
+        kind: "column",
+        model: "Колонна железобетонная 400x400",
+        position: [this.lastSnappedPoint.x * 1000, (this.lastSnappedPoint.y + 1.5) * 1000, this.lastSnappedPoint.z * 1000],
         rotation: Math.round(this.rotationAngle * (180 / Math.PI)),
       };
     } else { // light

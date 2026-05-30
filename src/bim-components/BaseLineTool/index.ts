@@ -26,6 +26,8 @@ export abstract class BaseLineTool {
 
   // Переменные для клавиатурного ввода длины
   protected lengthInputBuffer = "";
+  protected inputMode: "length" | "elevation" = "length";
+  protected elevationInputBuffer = "";
   protected lastSnappedMousePoint: THREE.Vector3 = new THREE.Vector3();
   private lastMouseX = 0;
   private lastMouseY = 0;
@@ -89,6 +91,9 @@ export abstract class BaseLineTool {
     this.currentStep = "idle";
     this.startPoint = null;
     this.lastSegmentDir = null;
+    this.lengthInputBuffer = "";
+    this.elevationInputBuffer = "";
+    this.inputMode = "length";
 
     this.removePreview();
     if (this.snapIndicator) {
@@ -291,6 +296,14 @@ export abstract class BaseLineTool {
     // Поддержка быстрого переключения уровней через Tab
     if (event.key === "Tab") {
       event.preventDefault();
+      
+      if (this.currentStep === "drawing" && this.startPoint) {
+        // Переключаем режим ввода при рисовании
+        this.inputMode = this.inputMode === "length" ? "elevation" : "length";
+        this.showCadTooltipAtLastMouse();
+        return;
+      }
+      
       const levels = (window as any).projectLevels || {};
       const levelsArray = Object.entries(levels).map(([name, val]) => ({ name, val: Number(val) }));
       
@@ -315,7 +328,11 @@ export abstract class BaseLineTool {
       // Если нажимают цифры
       if (/^\d$/.test(event.key)) {
         event.preventDefault();
-        this.lengthInputBuffer += event.key;
+        if (this.inputMode === "length") {
+          this.lengthInputBuffer += event.key;
+        } else {
+          this.elevationInputBuffer += event.key;
+        }
         this.showCadTooltipAtLastMouse();
         return;
       }
@@ -323,59 +340,105 @@ export abstract class BaseLineTool {
       // Backspace
       if (event.key === "Backspace") {
         event.preventDefault();
-        this.lengthInputBuffer = this.lengthInputBuffer.slice(0, -1);
+        if (this.inputMode === "length") {
+          this.lengthInputBuffer = this.lengthInputBuffer.slice(0, -1);
+        } else {
+          this.elevationInputBuffer = this.elevationInputBuffer.slice(0, -1);
+        }
         this.showCadTooltipAtLastMouse();
         return;
       }
 
       // Escape сбрасывает буфер ввода, если он заполнен
-      if (event.key === "Escape" && this.lengthInputBuffer) {
-        event.preventDefault();
-        this.lengthInputBuffer = "";
-        this.showCadTooltipAtLastMouse();
-        return;
+      if (event.key === "Escape") {
+        if (this.inputMode === "length" && this.lengthInputBuffer) {
+          event.preventDefault();
+          this.lengthInputBuffer = "";
+          this.showCadTooltipAtLastMouse();
+          return;
+        } else if (this.inputMode === "elevation" && this.elevationInputBuffer) {
+          event.preventDefault();
+          this.elevationInputBuffer = "";
+          this.showCadTooltipAtLastMouse();
+          return;
+        }
       }
 
-      // Enter подтверждает ввод длины
-      if (event.key === "Enter" && this.lengthInputBuffer) {
-        event.preventDefault();
-        const parsedLength = parseInt(this.lengthInputBuffer, 10);
-        this.lengthInputBuffer = "";
+      // Enter подтверждает ввод длины или отметки
+      if (event.key === "Enter") {
+        if (this.inputMode === "length" && this.lengthInputBuffer) {
+          event.preventDefault();
+          const parsedLength = parseInt(this.lengthInputBuffer, 10);
+          this.lengthInputBuffer = "";
 
-        if (isNaN(parsedLength) || parsedLength <= 0) {
-          console.warn("Некорректная длина:", parsedLength);
+          if (isNaN(parsedLength) || parsedLength <= 0) {
+            console.warn("Некорректная длина:", parsedLength);
+            return;
+          }
+
+          const lengthM = parsedLength / 1000;
+          const dir = new THREE.Vector3().subVectors(this.lastSnappedMousePoint, this.startPoint).normalize();
+          dir.y = 0;
+
+          if (dir.lengthSq() < 1e-6) {
+            // Если мышка лежит прямо на стартовой точке, берем направление предыдущего сегмента или ось X
+            dir.copy(this.lastSegmentDir || new THREE.Vector3(1, 0, 0));
+          }
+
+          // Проверяем запрет острых углов
+          if (this.lastSegmentDir && this.lastSegmentDir.dot(dir) < -0.708) {
+            console.warn("Слишком острый/обратный угол (>135°) запрещён.");
+            window.dispatchEvent(new CustomEvent("duct-angle-rejected"));
+            return;
+          }
+
+          const targetPoint = this.startPoint.clone().addScaledVector(dir, lengthM);
+
+          // Сохраняем сегмент
+          this.saveSegment(this.startPoint, targetPoint);
+
+          this.lastSegmentDir = dir;
+          this.startPoint = targetPoint.clone();
+          this.removePreview();
+          this.hideCadTooltip();
+          
+          // Обновляем превью от новой точки
+          this.updatePreview(this.startPoint, this.lastSnappedMousePoint, false);
+          return;
+        } else if (this.inputMode === "elevation" && this.elevationInputBuffer) {
+          event.preventDefault();
+          const parsedElevation = parseInt(this.elevationInputBuffer, 10);
+          this.elevationInputBuffer = "";
+          this.inputMode = "length";
+
+          if (isNaN(parsedElevation)) {
+            console.warn("Некорректная отметка:", parsedElevation);
+            return;
+          }
+
+          // Обновляем параметры высоты черчения
+          this.activeParams.elevation = parsedElevation;
+          this.mousePlane.constant = -(parsedElevation / 1000);
+
+          // Строим вертикальный подъем/опуск!
+          // Точка у нас лежит на тех же X и Z, что и startPoint, но Y равен новой отметке!
+          const targetPoint = this.startPoint.clone();
+          targetPoint.y = parsedElevation / 1000;
+
+          // Сохраняем сегмент
+          this.saveSegment(this.startPoint, targetPoint);
+
+          this.startPoint = targetPoint.clone();
+          this.removePreview();
+          this.hideCadTooltip();
+
+          // Оповещаем UI об изменении отметки
+          window.dispatchEvent(new CustomEvent("elevation-updated", { detail: { elevation: parsedElevation } }));
+
+          // Обновляем превью от новой точки
+          this.updatePreview(this.startPoint, this.lastSnappedMousePoint, false);
           return;
         }
-
-        const lengthM = parsedLength / 1000;
-        const dir = new THREE.Vector3().subVectors(this.lastSnappedMousePoint, this.startPoint).normalize();
-        dir.y = 0;
-
-        if (dir.lengthSq() < 1e-6) {
-          // Если мышка лежит прямо на стартовой точке, берем направление предыдущего сегмента или ось X
-          dir.copy(this.lastSegmentDir || new THREE.Vector3(1, 0, 0));
-        }
-
-        // Проверяем запрет острых углов
-        if (this.lastSegmentDir && this.lastSegmentDir.dot(dir) < -0.708) {
-          console.warn("Слишком острый/обратный угол (>135°) запрещён.");
-          window.dispatchEvent(new CustomEvent("duct-angle-rejected"));
-          return;
-        }
-
-        const targetPoint = this.startPoint.clone().addScaledVector(dir, lengthM);
-
-        // Сохраняем сегмент
-        this.saveSegment(this.startPoint, targetPoint);
-
-        this.lastSegmentDir = dir;
-        this.startPoint = targetPoint.clone();
-        this.removePreview();
-        this.hideCadTooltip();
-        
-        // Обновляем превью от новой точки
-        this.updatePreview(this.startPoint, this.lastSnappedMousePoint, false);
-        return;
       }
     }
 
@@ -471,14 +534,24 @@ export abstract class BaseLineTool {
         <div>Угол: <span style="color: #34d399; font-weight: bold;">${Math.abs(angleDeg)}°</span></div>
     `;
 
-    if (this.lengthInputBuffer) {
+    if (this.inputMode === "length" && this.lengthInputBuffer) {
       tooltipContent += `
         <div style="margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 4px; display: flex; flex-direction: column; gap: 2px;">
           <div style="color: #fbbf24; font-weight: bold;">⌨️ Ввод длины:</div>
           <div style="font-size: 13px; color: #fbbf24; font-weight: 800; background: rgba(0,0,0,0.4); padding: 2px 4px; border-radius: 2px; text-align: center;">
             ${this.lengthInputBuffer} мм
           </div>
-          <div style="font-size: 9px; color: #94a3b8; text-align: center; margin-top: 1px;">[Enter] - построить, [Esc] - сбросить</div>
+          <div style="font-size: 9px; color: #94a3b8; text-align: center; margin-top: 1px;">[Enter] - построить, [Tab] - ввести отметку, [Esc] - сбросить</div>
+        </div>
+      `;
+    } else if (this.inputMode === "elevation") {
+      tooltipContent += `
+        <div style="margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 4px; display: flex; flex-direction: column; gap: 2px;">
+          <div style="color: #fbbf24; font-weight: bold;">⌨️ Ввод отметки:</div>
+          <div style="font-size: 13px; color: #fbbf24; font-weight: 800; background: rgba(0,0,0,0.4); padding: 2px 4px; border-radius: 2px; text-align: center;">
+            ${this.elevationInputBuffer || "0"} мм
+          </div>
+          <div style="font-size: 9px; color: #94a3b8; text-align: center; margin-top: 1px;">[Enter] - применить, [Tab] - ввести длину, [Esc] - сбросить</div>
         </div>
       `;
     }

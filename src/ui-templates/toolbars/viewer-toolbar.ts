@@ -690,6 +690,21 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
     }
   };
 
+  // Переключение состояния инструмента размещения колонн
+  const onToggleColumnTool = () => {
+    const tool = (window as any).electricalPlacementTool;
+    if (tool) {
+      if (tool.enabled && tool.activeKind === "column") {
+        tool.deactivate();
+      } else {
+        deactivateAllTools();
+        applyElevationToTools();
+        tool.activate("column");
+      }
+      update();
+    }
+  };
+
   // Переключение состояния инструмента размещения кондиционеров
   const onToggleACTool = () => {
     const tool = (window as any).electricalPlacementTool;
@@ -891,6 +906,7 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
   const isLightToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "light") || false;
   const isDoorToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "door") || false;
   const isWindowToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "window") || false;
+  const isColumnToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "column") || false;
   const isACToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "ac") || false;
   const isACCeilingToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "ac_ceiling") || false;
   const isRadiatorToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "radiator") || false;
@@ -920,6 +936,7 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
         <bim-button icon="mdi:wall" tooltip-title="Стена" tooltip-text="Черчение стен кирпичных/бетонных/гипсокартонных с привязкой по углам и сетке" ?active=${isWallToolEnabled} @click=${onToggleWallTool}></bim-button>
         <bim-button icon="mdi:door" tooltip-title="Дверь" tooltip-text="Размещение двери в стену (вырезает проем автоматически!)" ?active=${isDoorToolEnabled} @click=${onToggleDoorTool}></bim-button>
         <bim-button icon="mdi:window-maximize" tooltip-title="Окно" tooltip-text="Размещение окна в стену (вырезает проем автоматически!)" ?active=${isWindowToolEnabled} @click=${onToggleWindowTool}></bim-button>
+        <bim-button icon="mdi:pillar" tooltip-title="Колонна" tooltip-text="Размещение несущей железобетонной колонны 400x400мм" ?active=${isColumnToolEnabled} @click=${onToggleColumnTool}></bim-button>
       </bim-toolbar-section>
 
       <bim-toolbar-section label="Вентиляция" icon="mdi:windsock">

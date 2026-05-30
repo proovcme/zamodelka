@@ -110,6 +110,29 @@ export class TerminalPlacementTool {
     console.log("Terminal placement tool deactivated.");
   }
 
+  activateConnectionMode(terminal: TerminalElement) {
+    if (this.enabled) this.deactivate();
+
+    this.enabled = true;
+    this.mode = "connecting";
+    this.pendingTerminal = terminal;
+    this.hoveredDuct = null;
+    this.projectedPoint = null;
+
+    const container = this.world.renderer?.three.domElement.parentElement;
+    if (container) {
+      container.addEventListener("mousemove", this.handleMouseMove);
+      container.addEventListener("pointerdown", this.handleMouseDown);
+    }
+    window.addEventListener("keydown", this.handleKeyDown);
+
+    this.highlightDucts();
+
+    if (container) container.style.cursor = "crosshair";
+
+    console.log(`Connection mode activated manually for terminal: ${terminal.id}`);
+  }
+
   setElements(elements: any[], updateCallback: () => void) {
     this.projectElements = elements;
     this.onElementsUpdated = updateCallback;
@@ -340,14 +363,11 @@ export class TerminalPlacementTool {
     if (event.button === 2) {
       event.preventDefault();
       if (this.mode === "connecting") {
-        // ПКМ в режиме подключения — отменяем подключение, возвращаемся к размещению
+        // ПКМ в режиме подключения — отменяем подключение и выходим из инструмента
         this.pendingTerminal = null;
         this.removeConnectionPreview();
         this.clearDuctHighlights();
-        this.mode = "placing";
-        const domEl = this.world.renderer?.three.domElement.parentElement;
-        if (domEl) domEl.style.cursor = "";
-        this.createPreview();
+        this.deactivate();
         window.dispatchEvent(new CustomEvent("terminal-connect-cancelled"));
         window.dispatchEvent(new CustomEvent("tool-deactivated")); // обновляем UI
       } else {
@@ -382,24 +402,10 @@ export class TerminalPlacementTool {
       this.ductDrawingTool.renderAll(this.projectElements);
       this.onElementsUpdated();
 
-      // Переходим в режим подключения к воздуховоду
-      this.pendingTerminal = terminal;
-      this.mode = "connecting";
-
-      // Скрываем превью размещения, подсвечиваем воздуховоды
-      this.removePreview();
-      this.highlightDucts();
-
-      // Меняем курсор
-      const domEl = this.world.renderer?.three.domElement.parentElement;
-      if (domEl) domEl.style.cursor = "crosshair";
-
       // Уведомляем UI
-      window.dispatchEvent(new CustomEvent("terminal-placed-awaiting-connect", {
-        detail: { terminalId: id, kind: this.activeKind }
-      }));
+      window.dispatchEvent(new CustomEvent("elements-updated"));
 
-      console.log(`Terminal placed at ${JSON.stringify(terminal.position)}, now select a duct to connect.`);
+      console.log(`Terminal placed freely at ${JSON.stringify(terminal.position)}`);
 
     } else {
       // === ПОДКЛЮЧЕНИЕ К ВОЗДУХОВОДУ ===
@@ -469,14 +475,8 @@ export class TerminalPlacementTool {
 
       console.log(`Connected terminal ${terminal.id} to duct ${duct.id} via branch ${branchId}`);
 
-      // Возвращаемся в режим размещения следующего терминала
-      this.pendingTerminal = null;
-      this.mode = "placing";
-
-      const domEl = this.world.renderer?.three.domElement.parentElement;
-      if (domEl) domEl.style.cursor = "";
-
-      this.createPreview();
+      // Завершаем инструмент после успешного подключения
+      this.deactivate();
       window.dispatchEvent(new CustomEvent("tool-deactivated")); // обновляем UI
     }
   };

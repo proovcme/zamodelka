@@ -1008,6 +1008,37 @@ export class DuctDrawingTool extends BaseLineTool {
         
         this.ductsGroup.add(wsGroup);
       }
+      else if (elem.type === "column") {
+        const pos = new THREE.Vector3(elem.position[0] / 1000, elem.position[1] / 1000, elem.position[2] / 1000);
+        
+        const columnGroup = new THREE.Group();
+        columnGroup.position.copy(pos);
+        
+        const colMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.7 }); // Бетон
+        const colGeom = new THREE.BoxGeometry(0.4, 3.0, 0.4); // 400x400x3000 мм
+        const colMesh = new THREE.Mesh(colGeom, colMat);
+        colMesh.position.set(0, 0, 0);
+        colMesh.userData = { elementId: elem.id };
+        columnGroup.add(colMesh);
+        
+        // Декоративные шапки (для премиальности)
+        const capMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.5 }); // графитовый серый
+        
+        const topCap = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.05, 0.44), capMat);
+        topCap.position.set(0, 1.5, 0);
+        topCap.userData = { elementId: elem.id };
+        columnGroup.add(topCap);
+        
+        const botCap = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.05, 0.44), capMat);
+        botCap.position.set(0, -1.5, 0);
+        botCap.userData = { elementId: elem.id };
+        columnGroup.add(botCap);
+        
+        // Поворот колонны
+        columnGroup.rotation.y = (elem.rotation * Math.PI) / 180;
+        
+        this.ductsGroup.add(columnGroup);
+      }
     }
   }
 

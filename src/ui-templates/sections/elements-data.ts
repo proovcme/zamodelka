@@ -429,6 +429,15 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
       window.dispatchEvent(new CustomEvent("custom-element-selected", { detail: null }));
     };
 
+    const onConnect = () => {
+      if (!selectedElement) return;
+      const highlighter = components.get(OBF.Highlighter);
+      highlighter.clear("select");
+      (window as any).selectedCustomElement = null;
+      window.dispatchEvent(new CustomEvent("custom-element-selected", { detail: null }));
+      (window as any).terminalPlacementTool?.activateConnectionMode(selectedElement);
+    };
+
     bodyContent = BUI.html`
       <div style="display: flex; flex-direction: column; gap: 0.8rem; width: 100%; max-height: 100%; overflow: auto; padding-bottom: 0.5rem;">
         <div style="display: flex; justify-content: flex-end; margin-top: -0.25rem;">
@@ -442,6 +451,14 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
         <div style="display: grid; grid-template-columns: 40% 60%; width: 100%; border-top: 1px solid var(--bim-ui_bg-contrast-20); margin-top: 0.25rem;">
           ${propertyRows}
         </div>
+        ${selectedElement.type === "terminal" ? BUI.html`
+          <bim-button 
+            label="Подключить к воздуховоду" 
+            icon="mdi:vector-line" 
+            style="--bim-ui_accent-base: #3b82f6; margin-top: 0.5rem;" 
+            @click=${onConnect}>
+          </bim-button>
+        ` : ""}
         <bim-button 
           label="Удалить элемент" 
           icon="mdi:delete" 
