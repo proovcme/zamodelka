@@ -75,8 +75,7 @@ export class DuctDrawingTool extends BaseLineTool {
 
     for (const elem of elements) {
       if (elem.type === "duct") {
-        const start = new THREE.Vector3(elem.start[0] / 1000, elem.start[1] / 1000, elem.start[2] / 1000);
-        const end = new THREE.Vector3(elem.end[0] / 1000, elem.end[1] / 1000, elem.end[2] / 1000);
+        const { start, end } = this.getShortenedEndpoints(elem, elements);
         
         const mesh = this.createDuctMesh(elem.shape, elem.size, start, end, false, false, elem.system);
         mesh.userData = { elementId: elem.id };
@@ -239,8 +238,7 @@ export class DuctDrawingTool extends BaseLineTool {
         this.ductsGroup.add(wallGroup);
       }
       else if (elem.type === "tray") {
-        const start = new THREE.Vector3(elem.start[0] / 1000, elem.start[1] / 1000, elem.start[2] / 1000);
-        const end = new THREE.Vector3(elem.end[0] / 1000, elem.end[1] / 1000, elem.end[2] / 1000);
+        const { start, end } = this.getShortenedEndpoints(elem, elements);
         
         const w = elem.width / 1000;
         const h = elem.height / 1000;
@@ -286,8 +284,7 @@ export class DuctDrawingTool extends BaseLineTool {
         this.ductsGroup.add(group);
       }
       else if (elem.type === "pipe") {
-        const start = new THREE.Vector3(elem.start[0] / 1000, elem.start[1] / 1000, elem.start[2] / 1000);
-        const end = new THREE.Vector3(elem.end[0] / 1000, elem.end[1] / 1000, elem.end[2] / 1000);
+        const { start, end } = this.getShortenedEndpoints(elem, elements);
         const r = elem.size.d / 2000;
         
         const distance = start.distanceTo(end);
@@ -1188,14 +1185,99 @@ export class DuctDrawingTool extends BaseLineTool {
     h: number,
     mat: THREE.Material
   ): THREE.Mesh {
-    const bisector = dirA.clone().add(dirB);
-    const axis = bisector.lengthSq() < 1e-6 ? dirA.clone() : bisector.normalize();
-    const depth = Math.max(w, h) * 1.05;
-    const geom = new THREE.BoxGeometry(w * 1.05, h * 1.05, depth);
-    const mesh = new THREE.Mesh(geom, mat);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
-    mesh.position.copy(node);
-    return mesh;
+    const off = Math.max(Math.max(w, h) * 1.2, 0.15);
+    const pA = node.clone().addScaledVector(dirA, off);
+    const pB = node.clone().addScaledVector(dirB, off);
+    const curve = new THREE.QuadraticBezierCurve3(pA, node.clone(), pB);
+    
+    const shape = new THREE.Shape();
+    shape.moveTo(-w / 2, -h / 2);
+    shape.lineTo(w / 2, -h / 2);
+    shape.lineTo(w / 2, h / 2);
+    shape.lineTo(-w / 2, h / 2);
+    shape.closePath();
+    
+    const extrudeSettings = {
+      steps: 12,
+      bevelEnabled: false,
+      extrudePath: curve
+    };
+    
+    const geom = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    return new THREE.Mesh(geom, mat);
+  }
+
+  private getShortenedEndpoints(elem: any, elements: any[]) {
+    const start = new THREE.Vector3(elem.start[0] / 1000, elem.start[1] / 1000, elem.start[2] / 1000);
+    const end = new THREE.Vector3(elem.end[0] / 1000, elem.end[1] / 1000, elem.end[2] / 1000);
+    const dir = new THREE.Vector3().subVectors(end, start).normalize();
+    
+    let newStart = start.clone();
+    let newEnd = end.clone();
+    
+    const fittings = elements.filter(e => e.type === "fitting");
+    
+    for (const fit of fittings) {
+      const nodePt = new THREE.Vector3(fit.node[0] / 1000, fit.node[1] / 1000, fit.node[2] / 1000);
+      
+      const isConnected = fit.connects && fit.connects.includes(elem.id);
+      if (!isConnected) continue;
+      
+      const distToStart = nodePt.distanceTo(start);
+      const distToEnd = nodePt.distanceTo(end);
+      
+      if (distToStart < 0.05) {
+        let off = 0.15;
+        if (fit.kind === "bend") {
+          if (elem.shape === "round" || elem.type === "pipe") {
+            const radius = ((elem.size?.d || 200) / 2) / 1000;
+            off = Math.max(radius * 1.5, 0.12);
+          } else {
+            const w = (elem.size?.w || elem.width || 300) / 1000;
+            const h = (elem.size?.h || elem.height || 200) / 1000;
+            off = Math.max(Math.max(w, h) * 1.2, 0.15);
+          }
+        } else if (fit.kind === "reducer") {
+          off = 0.15;
+        } else if (fit.kind === "tee") {
+          if (elem.shape === "round" || elem.type === "pipe") {
+            off = ((elem.size?.d || 200) / 2) / 1000 * 1.1;
+          } else {
+            off = ((elem.size?.w || elem.width || 300) / 2) / 1000 * 1.05;
+          }
+        }
+        newStart.addScaledVector(dir, off);
+      } else if (distToEnd < 0.05) {
+        let off = 0.15;
+        if (fit.kind === "bend") {
+          if (elem.shape === "round" || elem.type === "pipe") {
+            const radius = ((elem.size?.d || 200) / 2) / 1000;
+            off = Math.max(radius * 1.5, 0.12);
+          } else {
+            const w = (elem.size?.w || elem.width || 300) / 1000;
+            const h = (elem.size?.h || elem.height || 200) / 1000;
+            off = Math.max(Math.max(w, h) * 1.2, 0.15);
+          }
+        } else if (fit.kind === "reducer") {
+          off = 0.15;
+        } else if (fit.kind === "tee") {
+          if (elem.shape === "round" || elem.type === "pipe") {
+            off = ((elem.size?.d || 200) / 2) / 1000 * 1.1;
+          } else {
+            off = ((elem.size?.w || elem.width || 300) / 2) / 1000 * 1.05;
+          }
+        }
+        newEnd.addScaledVector(dir, -off);
+      }
+    }
+    
+    const originalLength = start.distanceTo(end);
+    const newLength = newStart.distanceTo(newEnd);
+    if (newLength < 0.02 || newStart.clone().sub(start).length() + end.clone().sub(newEnd).length() > originalLength) {
+      return { start, end };
+    }
+    
+    return { start: newStart, end: newEnd };
   }
 
   private createSquareToRound(
