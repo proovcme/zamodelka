@@ -90,40 +90,84 @@ let selectedDuctSystem = "Приточный";
 // Состояние черчения труб
 let selectedPipeSystem = "ХВС";
 
+const DEFAULT_SORTAMENT: any[] = [
+  // Round ducts (ВСН 353-86)
+  { ref: "VSN353-R-100", shape: "round", d: 100.0, wall_thickness: 0.5, mass_per_m: 1.2, source: "ВСН 353-86" },
+  { ref: "VSN353-R-125", shape: "round", d: 125.0, wall_thickness: 0.5, mass_per_m: 1.5, source: "ВСН 353-86" },
+  { ref: "VSN353-R-160", shape: "round", d: 160.0, wall_thickness: 0.5, mass_per_m: 1.9, source: "ВСН 353-86" },
+  { ref: "VSN353-R-200", shape: "round", d: 200.0, wall_thickness: 0.5, mass_per_m: 2.4, source: "ВСН 353-86" },
+  { ref: "VSN353-R-250", shape: "round", d: 250.0, wall_thickness: 0.5, mass_per_m: 3.1, source: "ВСН 353-86" },
+  { ref: "VSN353-R-315", shape: "round", d: 315.0, wall_thickness: 0.5, mass_per_m: 3.9, source: "ВСН 353-86" },
+  { ref: "VSN353-R-400", shape: "round", d: 400.0, wall_thickness: 0.5, mass_per_m: 4.9, source: "ВСН 353-86" },
+  
+  // Rectangular ducts (ВСН 353-86)
+  { ref: "VSN353-REC-150x100", shape: "rectangular", w: 150.0, h: 100.0, wall_thickness: 0.5, mass_per_m: 2.0, source: "ВСН 353-86" },
+  { ref: "VSN353-REC-200x150", shape: "rectangular", w: 200.0, h: 150.0, wall_thickness: 0.5, mass_per_m: 2.8, source: "ВСН 353-86" },
+  { ref: "VSN353-REC-250x200", shape: "rectangular", w: 250.0, h: 200.0, wall_thickness: 0.5, mass_per_m: 3.5, source: "ВСН 353-86" },
+  { ref: "VSN353-REC-400x250", shape: "rectangular", w: 400.0, h: 250.0, wall_thickness: 0.6, mass_per_m: 6.1, source: "ВСН 353-86" },
+  
+  // Trays
+  { ref: "TRAY-100x50", shape: "tray", w: 100.0, h: 50.0, wall_thickness: 1.0, mass_per_m: 1.1, source: "Сортамент лотков" },
+  { ref: "TRAY-200x80", shape: "tray", w: 200.0, h: 80.0, wall_thickness: 1.2, mass_per_m: 1.8, source: "Сортамент лотков" },
+  { ref: "TRAY-300x100", shape: "tray", w: 300.0, h: 100.0, wall_thickness: 1.5, mass_per_m: 2.7, source: "Сортамент лотков" },
+  { ref: "TRAY-400x100", shape: "tray", w: 400.0, h: 100.0, wall_thickness: 1.5, mass_per_m: 3.5, source: "Сортамент лотков" },
+
+  // Pipes
+  { ref: "PIPE-15", shape: "pipe", d: 15.0, wall_thickness: 2.5, mass_per_m: 1.2, source: "ГОСТ 3262-75" },
+  { ref: "PIPE-20", shape: "pipe", d: 20.0, wall_thickness: 2.8, mass_per_m: 1.7, source: "ГОСТ 3262-75" },
+  { ref: "PIPE-25", shape: "pipe", d: 25.0, wall_thickness: 3.2, mass_per_m: 2.4, source: "ГОСТ 3262-75" },
+  { ref: "PIPE-32", shape: "pipe", d: 32.0, wall_thickness: 3.2, mass_per_m: 3.1, source: "ГОСТ 3262-75" },
+  { ref: "PIPE-40", shape: "pipe", d: 40.0, wall_thickness: 3.5, mass_per_m: 3.8, source: "ГОСТ 3262-75" },
+  { ref: "PIPE-50", shape: "pipe", d: 50.0, wall_thickness: 3.5, mass_per_m: 4.9, source: "ГОСТ 3262-75" },
+  { ref: "PIPE-80", shape: "pipe", d: 80.0, wall_thickness: 4.0, mass_per_m: 8.4, source: "ГОСТ 3262-75" },
+  { ref: "PIPE-100", shape: "pipe", d: 100.0, wall_thickness: 4.5, mass_per_m: 11.6, source: "ГОСТ 3262-75" }
+];
+
+const getApiUrl = (path: string): string => {
+  const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+  const base = isLocal ? "http://127.0.0.1:8000" : (window.location.origin + "/api");
+  return `${base}${path}`;
+};
+
 const loadSortament = async (callback: () => void) => {
   try {
-    const res = await fetch("http://127.0.0.1:8000/sortament");
+    const res = await fetch(getApiUrl("/sortament"));
     if (res.ok) {
       sortamentList = await res.json();
-      console.log("Sortament loaded in toolbar:", sortamentList);
-      if ((window as any).drawingSettings) {
-        (window as any).drawingSettings.sortamentList = sortamentList;
-      }
-      
-      // Выбираем первый элемент по умолчанию
-      const roundItems = sortamentList.filter(item => item.shape === "round");
-      if (roundItems.length > 0) {
-        selectedRef = roundItems[0].ref;
-      }
-      
-      const trayItems = sortamentList.filter(item => item.shape === "tray");
-      if (trayItems.length > 0) {
-        selectedTrayRef = trayItems[0].ref;
-        selectedTrayWidth = trayItems[0].w;
-        selectedTrayHeight = trayItems[0].h;
-      }
-      
-      const pipeItems = sortamentList.filter(item => item.shape === "pipe");
-      if (pipeItems.length > 0) {
-        selectedPipeRef = pipeItems[0].ref;
-        selectedPipeDiameter = pipeItems[0].d;
-      }
-      
-      callback();
+      console.log("Sortament loaded from API:", sortamentList);
+    } else {
+      console.warn("Failed to fetch sortament from API, using default static sortament.");
+      sortamentList = DEFAULT_SORTAMENT;
     }
   } catch (err) {
-    console.error("Failed to fetch sortament in toolbar:", err);
+    console.warn("Network error fetching sortament, using default static sortament:", err);
+    sortamentList = DEFAULT_SORTAMENT;
   }
+
+  if ((window as any).drawingSettings) {
+    (window as any).drawingSettings.sortamentList = sortamentList;
+  }
+  
+  // Выбираем первый элемент по умолчанию
+  const roundItems = sortamentList.filter(item => item.shape === "round");
+  if (roundItems.length > 0) {
+    selectedRef = roundItems[0].ref;
+  }
+  
+  const trayItems = sortamentList.filter(item => item.shape === "tray");
+  if (trayItems.length > 0) {
+    selectedTrayRef = trayItems[0].ref;
+    selectedTrayWidth = trayItems[0].w;
+    selectedTrayHeight = trayItems[0].h;
+  }
+  
+  const pipeItems = sortamentList.filter(item => item.shape === "pipe");
+  if (pipeItems.length > 0) {
+    selectedPipeRef = pipeItems[0].ref;
+    selectedPipeDiameter = pipeItems[0].d;
+  }
+  
+  callback();
 };
 
 let currentProjectId = localStorage.getItem("vent_mvp_project_id") || "";
@@ -131,17 +175,23 @@ let currentProjectId = localStorage.getItem("vent_mvp_project_id") || "";
 const ensureProjectExists = async () => {
   if (!currentProjectId) {
     try {
-      const res = await fetch("http://127.0.0.1:8000/projects", {
+      const res = await fetch(getApiUrl("/projects"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "Новый проект вентиляции" }),
       });
-      const data = await res.json();
-      currentProjectId = data.id;
-      localStorage.setItem("vent_mvp_project_id", currentProjectId);
-      console.log("Created project with ID:", currentProjectId);
+      if (res.ok) {
+        const data = await res.json();
+        currentProjectId = data.id;
+        localStorage.setItem("vent_mvp_project_id", currentProjectId);
+        console.log("Created project on backend with ID:", currentProjectId);
+      } else {
+        throw new Error("Failed to create project on API backend");
+      }
     } catch (err) {
-      console.error("Failed to create project:", err);
+      console.warn("Failed to create project on backend, using local project storage:", err);
+      currentProjectId = "local-project-id";
+      localStorage.setItem("vent_mvp_project_id", currentProjectId);
     }
   }
 };
@@ -299,27 +349,36 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
   const onSaveProject = async ({ target }: { target: BUI.Button }) => {
     await ensureProjectExists();
     if (!currentProjectId) {
-      alert("Не удалось инициализировать проект на бэкенде.");
+      alert("Не удалось инициализировать проект.");
       return;
     }
     target.loading = true;
+    const tool = (window as any).ductDrawingTool;
+    const graphData = { elements: tool ? tool.projectElements : [] };
+
+    // Save to localStorage as a robust local backup
     try {
-      const tool = (window as any).ductDrawingTool;
-      const graphData = { elements: tool ? tool.projectElements : [] };
-      
-      const res = await fetch(`http://127.0.0.1:8000/projects/${currentProjectId}`, {
+      localStorage.setItem(`vent_mvp_project_data_${currentProjectId}`, JSON.stringify(graphData));
+      console.log("Saved project data locally in localStorage:", currentProjectId);
+    } catch (localErr) {
+      console.error("Failed to save to localStorage:", localErr);
+    }
+
+    try {
+      const res = await fetch(getApiUrl(`/projects/${currentProjectId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ graph: graphData }),
       });
       if (res.ok) {
-        alert(`Проект успешно сохранен. ID: ${currentProjectId}`);
+        alert(`Проект сохранен в облаке и локально. ID: ${currentProjectId}`);
       } else {
-        alert("Ошибка сохранения проекта.");
+        console.warn("API save failed, saved locally only.");
+        alert(`Проект сохранен локально (ошибка сервера). ID: ${currentProjectId}`);
       }
     } catch (err) {
-      console.error(err);
-      alert("Ошибка при сохранении: нет соединения с сервером.");
+      console.warn("Network error saving to backend, saved locally only:", err);
+      alert(`Проект сохранен локально (нет соединения). ID: ${currentProjectId}`);
     } finally {
       target.loading = false;
     }
@@ -331,37 +390,58 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
       return;
     }
     target.loading = true;
+    let loadedElements: any[] | null = null;
+    let projectName = "Локальный проект";
+    let projectVersion = 1;
+
     try {
-      const res = await fetch(`http://127.0.0.1:8000/projects/${currentProjectId}`);
+      const res = await fetch(getApiUrl(`/projects/${currentProjectId}`));
       if (res.ok) {
         const data = await res.json();
-        const loadedElements = data.graph.elements || [];
-        const ductTool = (window as any).ductDrawingTool;
-        if (ductTool) {
-          const tools = [
-            ductTool,
-            (window as any).wallDrawingTool,
-            (window as any).terminalPlacementTool,
-            (window as any).equipmentPlacementTool,
-            (window as any).trayDrawingTool,
-            (window as any).pipeDrawingTool,
-            (window as any).electricalPlacementTool
-          ];
-          tools.forEach(t => {
-            if (t) t.projectElements = loadedElements;
-          });
-          ductTool.renderAll(loadedElements);
-        }
-        alert(`Проект загружен. Имя: "${data.name}", версия: ${data.version}, элементов: ${loadedElements.length}`);
-      } else {
-        alert("Проект не найден на сервере.");
+        loadedElements = data.graph.elements || [];
+        projectName = data.name || projectName;
+        projectVersion = data.version || projectVersion;
+        console.log("Loaded project from backend:", currentProjectId);
       }
     } catch (err) {
-      console.error(err);
-      alert("Ошибка при загрузке: нет соединения с сервером.");
-    } finally {
-      target.loading = false;
+      console.warn("Failed to fetch project from backend, trying localStorage:", err);
     }
+
+    if (!loadedElements) {
+      try {
+        const localDataStr = localStorage.getItem(`vent_mvp_project_data_${currentProjectId}`);
+        if (localDataStr) {
+          const localData = JSON.parse(localDataStr);
+          loadedElements = localData.elements || [];
+          console.log("Loaded project from localStorage:", currentProjectId);
+        }
+      } catch (localErr) {
+        console.error("Error reading project from localStorage:", localErr);
+      }
+    }
+
+    if (loadedElements) {
+      const ductTool = (window as any).ductDrawingTool;
+      if (ductTool) {
+        const tools = [
+          ductTool,
+          (window as any).wallDrawingTool,
+          (window as any).terminalPlacementTool,
+          (window as any).equipmentPlacementTool,
+          (window as any).trayDrawingTool,
+          (window as any).pipeDrawingTool,
+          (window as any).electricalPlacementTool
+        ];
+        tools.forEach(t => {
+          if (t) t.projectElements = loadedElements;
+        });
+        ductTool.renderAll(loadedElements);
+      }
+      alert(`Проект загружен. Элементов: ${loadedElements.length}`);
+    } else {
+      alert("Не удалось найти сохраненный проект ни в облаке, ни локально.");
+    }
+    target.loading = false;
   };
 
   const onExportExcel = () => {
@@ -369,7 +449,12 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
       alert("Сначала сохраните проект!");
       return;
     }
-    window.open(`http://127.0.0.1:8000/projects/${currentProjectId}/export/xlsx`, "_blank");
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    if (isLocal) {
+      window.open(getApiUrl(`/projects/${currentProjectId}/export/xlsx`), "_blank");
+    } else {
+      alert("Экспорт в Excel временно недоступен в веб-версии без запущенного бэкенда. Пожалуйста, используйте экспорт в IFC.");
+    }
   };
 
   const onExportIfc = () => {
