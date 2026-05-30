@@ -68,6 +68,9 @@ export class ElectricalPlacementTool {
 
     this.createPreview();
     console.log(`Placement tool activated for: ${kind}`);
+
+    (window as any).projectBrowserActiveTab = "params";
+    window.dispatchEvent(new CustomEvent("active-tool-changed"));
   }
 
   deactivate() {

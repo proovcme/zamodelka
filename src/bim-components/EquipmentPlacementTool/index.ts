@@ -51,6 +51,9 @@ export class EquipmentPlacementTool {
     
     this.createPreview();
     console.log("Equipment placement tool activated.");
+
+    (window as any).projectBrowserActiveTab = "params";
+    window.dispatchEvent(new CustomEvent("active-tool-changed"));
   }
 
   deactivate() {

@@ -80,6 +80,9 @@ export class TerminalPlacementTool {
 
     this.createPreview();
     console.log(`Terminal placement tool activated for: ${kind}`);
+
+    (window as any).projectBrowserActiveTab = "params";
+    window.dispatchEvent(new CustomEvent("active-tool-changed"));
   }
 
   deactivate() {

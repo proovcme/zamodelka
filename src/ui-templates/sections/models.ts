@@ -62,6 +62,7 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
     window.removeEventListener("elevation-updated", (window as any)[listenerName]);
     window.removeEventListener("drawing-settings-external-updated", (window as any)[listenerName]);
     window.removeEventListener("tool-deactivated", (window as any)[listenerName]);
+    window.removeEventListener("active-tool-changed", (window as any)[listenerName]);
   }
   (window as any)[listenerName] = () => update();
   window.addEventListener("project-levels-updated", (window as any)[listenerName]);
@@ -69,6 +70,9 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
   window.addEventListener("elevation-updated", (window as any)[listenerName]);
   window.addEventListener("drawing-settings-external-updated", (window as any)[listenerName]);
   window.addEventListener("tool-deactivated", (window as any)[listenerName]);
+  window.addEventListener("active-tool-changed", (window as any)[listenerName]);
+
+  const activeTab = (window as any).projectBrowserActiveTab || "params";
 
   const [modelsList] = CUI.tables.modelsList({
     components,
@@ -493,7 +497,7 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
       <div style="height: 100%; display: flex; flex-direction: column;">
         <bim-tabs style="flex: 1; display: flex; flex-direction: column; height: 100%;">
           
-          <bim-tab name="params" label="Параметры" icon="mdi:cog" active>
+          <bim-tab name="params" label="Параметры" icon="mdi:cog" ?active=${activeTab === "params"} @click=${() => { (window as any).projectBrowserActiveTab = "params"; }}>
             <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.75rem; overflow: auto; height: 100%;">
               
               <!-- Уровень -->
@@ -660,7 +664,7 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
             </div>
           </bim-tab>
           
-          <bim-tab name="levels" label="Уровни" icon="mdi:layers-triple">
+          <bim-tab name="levels" label="Уровни" icon="mdi:layers-triple" ?active=${activeTab === "levels"} @click=${() => { (window as any).projectBrowserActiveTab = "levels"; }}>
             <div style="display: flex; flex-direction: column; gap: 1rem; padding: 0.75rem; overflow: auto; height: 100%;">
               <div style="font-weight: bold; font-size: 0.85rem; color: var(--bim-ui_bg-contrast-100); margin-bottom: 0.25rem;">Высотные отметки уровней:</div>
               <div style="display: flex; flex-direction: column; gap: 0.35rem;">
@@ -680,7 +684,7 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
             </div>
           </bim-tab>
           
-          <bim-tab name="systems" label="Системы" icon="solar:settings-bold">
+          <bim-tab name="systems" label="Системы" icon="solar:settings-bold" ?active=${activeTab === "systems"} @click=${() => { (window as any).projectBrowserActiveTab = "systems"; }}>
             <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.75rem; overflow: auto; height: 100%;">
               <div style="font-weight: bold; font-size: 0.85rem; color: var(--bim-ui_bg-contrast-100); margin-bottom: 0.25rem;">Реестр систем и расцветка:</div>
               ${renderSystemsGroup("Вентиляция", ventSystems)}
@@ -693,7 +697,7 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
             </div>
           </bim-tab>
           
-          <bim-tab name="models" label="Модели" icon="mdi:cube">
+          <bim-tab name="models" label="Модели" icon="mdi:cube" ?active=${activeTab === "models"} @click=${() => { (window as any).projectBrowserActiveTab = "models"; }}>
             <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.75rem; overflow: auto; height: 100%;">
               <div style="font-weight: bold; font-size: 0.85rem; color: var(--bim-ui_bg-contrast-100); margin-bottom: 0.25rem;">IFC и фрагмент-подложки:</div>
               <div style="display: flex; gap: 0.5rem;">

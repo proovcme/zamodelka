@@ -83,6 +83,9 @@ export abstract class BaseLineTool {
 
     this.createCadTooltip();
     console.log(`${this.constructor.name} activated.`);
+
+    (window as any).projectBrowserActiveTab = "params";
+    window.dispatchEvent(new CustomEvent("active-tool-changed"));
   }
 
   deactivate() {
