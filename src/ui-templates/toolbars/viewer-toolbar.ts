@@ -905,12 +905,60 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
   if (world.camera instanceof OBC.SimpleCamera) {
     const onFocus = async ({ target }: { target: BUI.Button }) => {
       if (!(world.camera instanceof OBC.SimpleCamera)) return;
-      const selection = highlighter.selection.select;
       target.loading = true;
-      await world.camera.fitToItems(
-        OBC.ModelIdMapUtils.isEmpty(selection) ? undefined : selection,
-      );
-      target.loading = false;
+      try {
+        const tool = (window as any).ductDrawingTool;
+        const selected = (window as any).selectedCustomElement;
+        
+        let targetMesh: THREE.Object3D | null = null;
+        if (tool && selected) {
+          tool.ductsGroup.traverse((child: any) => {
+            if (child.userData?.elementId === selected.id) {
+              targetMesh = child;
+            }
+          });
+        }
+        
+        if (targetMesh) {
+          const box = new THREE.Box3().setFromObject(targetMesh);
+          box.expandByScalar(0.2); // Add a 200mm padding around the element
+          await world.camera.controls.fitToBox(box, true);
+        } else {
+          // If no custom element is selected, check if there is an IFC selection
+          const selection = highlighter.selection.select;
+          if (!OBC.ModelIdMapUtils.isEmpty(selection)) {
+            await world.camera.fitToItems(selection);
+          } else {
+            // Nothing selected: Fit the entire model (fittings, ducts, walls, equipment + IFC models)
+            const box = new THREE.Box3();
+            let hasValidObjects = false;
+            
+            if (tool && tool.ductsGroup && tool.ductsGroup.children.length > 0) {
+              box.expandByObject(tool.ductsGroup);
+              hasValidObjects = true;
+            }
+            
+            const fragments = components.get(OBC.FragmentsManager);
+            if (fragments && fragments.list.size > 0) {
+              for (const group of fragments.list.values()) {
+                box.expandByObject(group.object);
+                hasValidObjects = true;
+              }
+            }
+            
+            if (hasValidObjects) {
+              box.expandByScalar(0.5); // Add a 500mm padding around the scene bounds
+              await world.camera.controls.fitToBox(box, true);
+            } else {
+              await world.camera.controls.reset(true);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error focusing camera:", err);
+      } finally {
+        target.loading = false;
+      }
     };
 
     focusBtn = BUI.html`<bim-button tooltip-title=${tooltips.FOCUS.TITLE} tooltip-text=${tooltips.FOCUS.TEXT} icon=${appIcons.FOCUS} @click=${onFocus}></bim-button>`;
