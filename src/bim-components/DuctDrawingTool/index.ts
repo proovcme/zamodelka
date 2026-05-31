@@ -1212,35 +1212,66 @@ export class DuctDrawingTool extends BaseLineTool {
     h: number,
     mat: THREE.Material
   ): THREE.Mesh {
-    // Двухсегментный Г-образный отвод для прямоугольных каналов.
-    // Каждый сегмент начинается точно там, где заканчивается укороченный воздуховод,
-    // и идет до узла (node), полностью исключая зазоры и предотвращая любые перевороты сечений (w ↔ h).
+    // Гладкий гнутый прямоугольный отвод: протяжка сечения w×h по квадратичной дуге.
+    // off СОВПАДАЕТ с укорачиванием воздуховода в getShortenedEndpoints → отвод точно
+    // стыкуется с концами каналов (без зазоров). Сечение ориентируем ЯВНО:
+    // right = worldUp × tangent (горизонталь), up = tangent × right (≈вертикаль) —
+    // поэтому w всегда горизонтальна, h вертикальна (никаких переворотов w↔h).
     const off = Math.max(Math.max(w, h) * 1.2, 0.15);
+    const pA = node.clone().addScaledVector(dirA, off);
+    const pB = node.clone().addScaledVector(dirB, off);
+    const curve = new THREE.QuadraticBezierCurve3(pA, node.clone(), pB);
 
-    // Создаем родительский меш с пустой геометрией, но с большим boundingSphere для надежного raycast
-    const parentGeom = new THREE.BufferGeometry();
-    parentGeom.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), off * 2);
-    const parentMesh = new THREE.Mesh(parentGeom, mat);
-    parentMesh.position.copy(node);
+    const segments = 16;
+    const hw = w / 2;
+    const hh = h / 2;
+    const worldUp = new THREE.Vector3(0, 1, 0);
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const cornersUV: [number, number][] = [
+      [-hw, -hh],
+      [hw, -hh],
+      [hw, hh],
+      [-hw, hh],
+    ];
 
-    // Вспомогательный вектор направления для осей BoxGeometry в Three.js (ось Z по умолчанию)
-    const defaultDir = new THREE.Vector3(0, 0, 1);
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const P = curve.getPoint(t);
+      const T = curve.getTangent(t).normalize();
+      let right = new THREE.Vector3().crossVectors(worldUp, T);
+      if (right.lengthSq() < 1e-6) right.set(1, 0, 0); // почти вертикальный участок
+      right.normalize();
+      const up = new THREE.Vector3().crossVectors(T, right).normalize();
+      for (const [cu, cv] of cornersUV) {
+        positions.push(
+          P.x + right.x * cu + up.x * cv,
+          P.y + right.y * cu + up.y * cv,
+          P.z + right.z * cu + up.z * cv,
+        );
+      }
+    }
 
-    // Сегмент А (от node + dirA * off до node)
-    const geomA = new THREE.BoxGeometry(w, h, off);
-    const meshA = new THREE.Mesh(geomA, mat);
-    meshA.position.copy(dirA).multiplyScalar(off / 2);
-    meshA.quaternion.setFromUnitVectors(defaultDir, dirA);
-    parentMesh.add(meshA);
+    // боковые грани между кольцами (4 четырёхугольника на сегмент)
+    for (let i = 0; i < segments; i++) {
+      const a = i * 4;
+      const b = (i + 1) * 4;
+      for (let j = 0; j < 4; j++) {
+        const j2 = (j + 1) % 4;
+        indices.push(a + j, a + j2, b + j2);
+        indices.push(a + j, b + j2, b + j);
+      }
+    }
 
-    // Сегмент Б (от node + dirB * off до node)
-    const geomB = new THREE.BoxGeometry(w, h, off);
-    const meshB = new THREE.Mesh(geomB, mat);
-    meshB.position.copy(dirB).multiplyScalar(off / 2);
-    meshB.quaternion.setFromUnitVectors(defaultDir, dirB);
-    parentMesh.add(meshB);
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geom.setIndex(indices);
+    geom.computeVertexNormals();
 
-    return parentMesh;
+    // двусторонний материал — чтобы открытые торцы/внутренняя сторона не темнели
+    const elbowMat = (mat as THREE.MeshStandardMaterial).clone();
+    elbowMat.side = THREE.DoubleSide;
+    return new THREE.Mesh(geom, elbowMat);
   }
 
   private getShortenedEndpoints(elem: any, elements: any[]) {
