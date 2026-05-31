@@ -356,14 +356,21 @@ viewport.addEventListener("contextmenu", (e) => e.preventDefault());
 const selectionRaycaster = new THREE.Raycaster();
 const selectionMouse = new THREE.Vector2();
 
-let currentSelectedMesh: THREE.Mesh | null = null;
-let originalMaterial: THREE.Material | THREE.Material[] | null = null;
+let currentSelectedMesh: THREE.Object3D | null = null;
 
 function highlightCustomMesh(mesh: THREE.Mesh) {
   clearCustomSelection();
   
-  currentSelectedMesh = mesh;
-  originalMaterial = mesh.material;
+  // Находим корневой меш элемента в ductsGroup, чтобы подсветить все его детали вместе
+  let root: THREE.Object3D = mesh;
+  const elementId = mesh.userData?.elementId;
+  if (elementId) {
+    while (root.parent && root.parent.userData?.elementId === elementId) {
+      root = root.parent;
+    }
+  }
+  
+  currentSelectedMesh = root;
   
   // Создаем материал подсветки (салатовый цвет, соответствующий BIM-хайлайтеру)
   const highlightMat = new THREE.MeshStandardMaterial({
@@ -373,11 +380,19 @@ function highlightCustomMesh(mesh: THREE.Mesh) {
     emissive: 0x333300
   });
   
-  mesh.material = highlightMat;
+  // Подсвечиваем сам корневой элемент и все его дочерние меши рекурсивно
+  root.traverse((node: any) => {
+    if (node instanceof THREE.Mesh) {
+      if (!node.userData.originalMaterial) {
+        node.userData.originalMaterial = node.material;
+      }
+      node.material = highlightMat;
+    }
+  });
 
   // Центрируем вращение камеры вокруг выбранного кастомного элемента
   if (world && world.camera && world.camera.controls) {
-    const box = new THREE.Box3().setFromObject(mesh);
+    const box = new THREE.Box3().setFromObject(root);
     const center = new THREE.Vector3();
     box.getCenter(center);
     world.camera.controls.setTarget(center.x, center.y, center.z, true);
@@ -385,10 +400,16 @@ function highlightCustomMesh(mesh: THREE.Mesh) {
 }
 
 function clearCustomSelection() {
-  if (currentSelectedMesh && originalMaterial) {
-    currentSelectedMesh.material = originalMaterial;
+  if (currentSelectedMesh) {
+    // Рекурсивно восстанавливаем оригинальные материалы для всех дочерних мешей
+    currentSelectedMesh.traverse((node: any) => {
+      if (node instanceof THREE.Mesh && node.userData.originalMaterial) {
+        node.material = node.userData.originalMaterial;
+        delete node.userData.originalMaterial;
+      }
+    });
+    
     currentSelectedMesh = null;
-    originalMaterial = null;
   }
   (window as any).selectedCustomElement = null;
   window.dispatchEvent(new CustomEvent("custom-element-selected", { detail: null }));

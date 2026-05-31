@@ -410,6 +410,9 @@ export class DuctDrawingTool extends BaseLineTool {
             }
           }
           mesh.userData = { elementId: elem.id };
+          mesh.traverse((child) => {
+            child.userData.elementId = elem.id;
+          });
           this.ductsGroup.add(mesh);
         }
         else if (elem.kind === "tee") {
@@ -1209,27 +1212,35 @@ export class DuctDrawingTool extends BaseLineTool {
     h: number,
     mat: THREE.Material
   ): THREE.Mesh {
-    // Коробка-коннектор в углу с ЯВНЫМ базисом, чтобы НЕ путать ширину/высоту:
-    // X = ширина w (горизонталь, перпендикулярно биссектрисе), Y = высота h (вертикаль),
-    // Z = глубина вдоль биссектрисы угла. (ExtrudeGeometry разворачивал сечение → w↔h.)
-    const bis = dirA.clone().add(dirB);
-    let fwd = (bis.lengthSq() < 1e-6 ? dirA.clone() : bis).clone();
-    fwd.y = 0; // горизонтальные повороты
-    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, 1);
-    fwd.normalize();
+    // Двухсегментный Г-образный отвод для прямоугольных каналов.
+    // Каждый сегмент начинается точно там, где заканчивается укороченный воздуховод,
+    // и идет до узла (node), полностью исключая зазоры и предотвращая любые перевороты сечений (w ↔ h).
+    const off = Math.max(Math.max(w, h) * 1.2, 0.15);
 
-    const up = new THREE.Vector3(0, 1, 0);
-    const right = new THREE.Vector3().crossVectors(up, fwd).normalize();
-    const realUp = new THREE.Vector3().crossVectors(fwd, right).normalize();
+    // Создаем родительский меш с пустой геометрией, но с большим boundingSphere для надежного raycast
+    const parentGeom = new THREE.BufferGeometry();
+    parentGeom.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), off * 2);
+    const parentMesh = new THREE.Mesh(parentGeom, mat);
+    parentMesh.position.copy(node);
 
-    const depth = Math.max(w, h) * 1.15;
-    const geom = new THREE.BoxGeometry(w * 1.04, h * 1.04, depth);
-    const mesh = new THREE.Mesh(geom, mat);
-    // makeBasis: столбцы = локальные оси X(right=ширина), Y(up=высота), Z(fwd=глубина)
-    const basis = new THREE.Matrix4().makeBasis(right, realUp, fwd);
-    mesh.quaternion.setFromRotationMatrix(basis);
-    mesh.position.copy(node);
-    return mesh;
+    // Вспомогательный вектор направления для осей BoxGeometry в Three.js (ось Z по умолчанию)
+    const defaultDir = new THREE.Vector3(0, 0, 1);
+
+    // Сегмент А (от node + dirA * off до node)
+    const geomA = new THREE.BoxGeometry(w, h, off);
+    const meshA = new THREE.Mesh(geomA, mat);
+    meshA.position.copy(dirA).multiplyScalar(off / 2);
+    meshA.quaternion.setFromUnitVectors(defaultDir, dirA);
+    parentMesh.add(meshA);
+
+    // Сегмент Б (от node + dirB * off до node)
+    const geomB = new THREE.BoxGeometry(w, h, off);
+    const meshB = new THREE.Mesh(geomB, mat);
+    meshB.position.copy(dirB).multiplyScalar(off / 2);
+    meshB.quaternion.setFromUnitVectors(defaultDir, dirB);
+    parentMesh.add(meshB);
+
+    return parentMesh;
   }
 
   private getShortenedEndpoints(elem: any, elements: any[]) {
