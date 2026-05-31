@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    
+    <!-- Brand Teal Gradient (Light) -->
+    <linearGradient id="tealLight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2dd4bf" />
+      <stop offset="100%" stop-color="#14b8a6" />
+    </linearGradient>
+
+    <!-- Brand Teal Gradient (Medium) -->
+    <linearGradient id="tealMedium" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14b8a6" />
+      <stop offset="100%" stop-color="#0d9488" />
+    </linearGradient>
+
+    <!-- Brand Teal Gradient (Dark) -->
+    <linearGradient id="tealDark" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0f766e" />
+      <stop offset="100%" stop-color="#115e59" />
+    </linearGradient>
+    
+    <!-- Accent Orange/Amber for Pipes/Fittings -->
+    <linearGradient id="accentOrange" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Premium Dark Rounded Background -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bgGrad)" stroke="#1e293b" stroke-width="4" />
+  
+  <!-- Subtle inner border for premium appearance -->
+  <rect x="24" y="24" width="464" height="464" rx="100" fill="none" stroke="#334155" stroke-width="2" opacity="0.5" />
+
+  <!-- Geometric CAD Grid Backdrop (representing modeling canvas) -->
+  <g opacity="0.15">
+    <path d="M 256,48 L 256,464 M 48,256 L 464,256" stroke="#ffffff" stroke-width="2" stroke-dasharray="8 8" />
+    <!-- Isometric Grid Lines -->
+    <path d="M 96,164 L 416,348 M 96,348 L 416,164" stroke="#ffffff" stroke-width="2" stroke-dasharray="4 8" />
+    <path d="M 176,118 L 336,410 M 176,394 L 336,102" stroke="#ffffff" stroke-width="2" stroke-dasharray="4 8" />
+  </g>
+
+  <!-- Glowing background aura for the 3D element -->
+  <circle cx="256" cy="256" r="120" fill="#14b8a6" opacity="0.15" filter="url(#glow)" />
+
+  <!-- 3D Isometric CAD Duct & Fitting Structure -->
+  <g transform="translate(0, -10)">
+    <!-- 1. Left-to-Right Horizontal rectangular duct section -->
+    <!-- Top Face of Duct -->
+    <polygon points="120,240 256,162 392,240 256,318" fill="url(#tealLight)" />
+    <!-- Left Face of Duct -->
+    <polygon points="120,240 256,318 256,380 120,302" fill="url(#tealDark)" />
+    <!-- Right Face of Duct -->
+    <polygon points="256,318 392,240 392,302 256,380" fill="url(#tealMedium)" />
+
+    <!-- 2. Vertical round pipe/duct riser (Feature 5 theme) rising from the center of the rectangular duct -->
+    <!-- Outer Riser Tube (Cylinder) -->
+    <!-- We make it rise from the top of the duct, center 256,240 -->
+    <!-- Top ellipse of riser cylinder -->
+    <ellipse cx="256" cy="110" rx="42" ry="21" fill="url(#accentOrange)" />
+    <!-- Front half of cylinder body -->
+    <path d="M 214,110 A 42,21 0 0 0 298,110 L 298,210 A 42,21 0 0 1 214,210 Z" fill="url(#accentOrange)" />
+    <!-- Adding a highlight to the cylinder to make it pop and look 3D -->
+    <path d="M 230,123 L 230,223" stroke="#fef08a" stroke-width="4" stroke-linecap="round" opacity="0.6" />
+    
+    <!-- Connection collar/flange at the base of the riser -->
+    <ellipse cx="256" cy="210" rx="50" ry="25" fill="none" stroke="#f59e0b" stroke-width="6" opacity="0.8" />
+    <ellipse cx="256" cy="210" rx="50" ry="25" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.9" />
+
+    <!-- 3. Dynamic wireframe overlay lines to emphasize CAD modeling -->
+    <path d="M 120,240 L 256,162 L 392,240 M 256,162 L 256,318 M 120,302 L 256,380 L 392,302" 
+          fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.75" />
+    
+    <path d="M 120,240 L 120,302 M 392,240 L 392,302" 
+          fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.75" />
+
+    <!-- Compass/Axis indicator in the corner (Modeler signature) -->
+    <g transform="translate(400, 390)" opacity="0.85">
+      <!-- X axis (Teal) -->
+      <line x1="0" y1="0" x2="-30" y2="15" stroke="#2dd4bf" stroke-width="3" stroke-linecap="round" />
+      <text x="-42" y="22" fill="#2dd4bf" font-family="monospace" font-size="14" font-weight="bold">X</text>
+      <!-- Z axis (Orange) -->
+      <line x1="0" y1="0" x2="30" y2="15" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" />
+      <text x="35" y="22" fill="#f59e0b" font-family="monospace" font-size="14" font-weight="bold">Z</text>
+      <!-- Y axis (Blue) -->
+      <line x1="0" y1="0" x2="0" y2="-30" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
+      <text x="-5" y="-36" fill="#38bdf8" font-family="monospace" font-size="14" font-weight="bold">Y</text>
+    </g>
+  </g>
+</svg>
