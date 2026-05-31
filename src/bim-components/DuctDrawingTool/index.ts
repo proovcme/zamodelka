@@ -1209,26 +1209,27 @@ export class DuctDrawingTool extends BaseLineTool {
     h: number,
     mat: THREE.Material
   ): THREE.Mesh {
-    const off = Math.max(Math.max(w, h) * 1.2, 0.15);
-    const pA = node.clone().addScaledVector(dirA, off);
-    const pB = node.clone().addScaledVector(dirB, off);
-    const curve = new THREE.QuadraticBezierCurve3(pA, node.clone(), pB);
-    
-    const shape = new THREE.Shape();
-    shape.moveTo(-w / 2, -h / 2);
-    shape.lineTo(w / 2, -h / 2);
-    shape.lineTo(w / 2, h / 2);
-    shape.lineTo(-w / 2, h / 2);
-    shape.closePath();
-    
-    const extrudeSettings = {
-      steps: 12,
-      bevelEnabled: false,
-      extrudePath: curve
-    };
-    
-    const geom = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    return new THREE.Mesh(geom, mat);
+    // Коробка-коннектор в углу с ЯВНЫМ базисом, чтобы НЕ путать ширину/высоту:
+    // X = ширина w (горизонталь, перпендикулярно биссектрисе), Y = высота h (вертикаль),
+    // Z = глубина вдоль биссектрисы угла. (ExtrudeGeometry разворачивал сечение → w↔h.)
+    const bis = dirA.clone().add(dirB);
+    let fwd = (bis.lengthSq() < 1e-6 ? dirA.clone() : bis).clone();
+    fwd.y = 0; // горизонтальные повороты
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, 1);
+    fwd.normalize();
+
+    const up = new THREE.Vector3(0, 1, 0);
+    const right = new THREE.Vector3().crossVectors(up, fwd).normalize();
+    const realUp = new THREE.Vector3().crossVectors(fwd, right).normalize();
+
+    const depth = Math.max(w, h) * 1.15;
+    const geom = new THREE.BoxGeometry(w * 1.04, h * 1.04, depth);
+    const mesh = new THREE.Mesh(geom, mat);
+    // makeBasis: столбцы = локальные оси X(right=ширина), Y(up=высота), Z(fwd=глубина)
+    const basis = new THREE.Matrix4().makeBasis(right, realUp, fwd);
+    mesh.quaternion.setFromRotationMatrix(basis);
+    mesh.position.copy(node);
+    return mesh;
   }
 
   private getShortenedEndpoints(elem: any, elements: any[]) {
