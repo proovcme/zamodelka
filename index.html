@@ -11,8 +11,70 @@
 </head>
 
 <body>
-  <bim-grid id="app"></bim-grid>
+  <div style="display: flex; flex-direction: column; width: 100vw; height: 100vh; overflow: hidden;">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a href="https://bim.ovc.me" class="site-header__logo">
+          Замоделька<span>.ovc</span>
+        </a>
+        <button class="burger" id="burger" aria-label="Меню"><span></span><span></span><span></span></button>
+        <nav class="site-header__nav" id="site-nav">
+          <a href="https://ovc.me" class="site-header__link">
+            <span class="site-header__link-cmd" style="color: var(--c-main)"><span class="cli-only">~/</span></span>
+            <span class="site-header__link-label">Автор</span>
+          </a>
+          <a href="https://ai.ovc.me" class="site-header__link">
+            <span class="site-header__link-cmd" style="color: var(--c-waf)"><span class="cli-only">cd </span>ai</span>
+            <span class="site-header__link-label">Прикл. ИИ</span>
+          </a>
+          <a href="https://rag.ovc.me" class="site-header__link">
+            <span class="site-header__link-cmd" style="color: var(--c-rag)"><span class="cli-only">cd </span>rag</span>
+            <span class="site-header__link-label">RAG</span>
+          </a>
+          <a href="https://bim.ovc.me" class="site-header__link active">
+            <span class="site-header__link-cmd" style="color: var(--c-bim)"><span class="cli-only">cd </span>bim</span>
+            <span class="site-header__link-label">BIM</span>
+          </a>
+          <a href="https://toc.ovc.me" class="site-header__link">
+            <span class="site-header__link-cmd" style="color: var(--c-toc)"><span class="cli-only">cd </span>toc</span>
+            <span class="site-header__link-label">Сделано</span>
+          </a>
+          <a href="https://fun.ovc.me" class="site-header__link">
+            <span class="site-header__link-cmd" style="color: var(--c-fun)"><span class="cli-only">cd </span>fun</span>
+            <span class="site-header__link-label">Лаба</span>
+          </a>
+        </nav>
+        <div class="site-header__right">
+          <div class="header-tg-group">
+            <a href="https://t.me/wearefired" class="site-header__tg" target="_blank" rel="noopener">
+              <span class="cmd"><span class="cli-only">@</span>wearefired</span>
+              <span class="lbl">Канал</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </header>
+    <bim-grid id="app" style="flex: 1; min-height: 0; width: 100%; height: auto;"></bim-grid>
+  </div>
   <script type="module" src="/src/main.ts"></script>
+  <script>
+    (function(){
+      var btn = document.getElementById('burger');
+      var nav = document.getElementById('site-nav');
+      if (!btn || !nav) return;
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        nav.classList.toggle('open');
+        btn.classList.toggle('open');
+      });
+      document.addEventListener('click', function(e) {
+        if (!e.target.closest('.site-header')) {
+          nav.classList.remove('open');
+          btn.classList.remove('open');
+        }
+      });
+    })();
+  </script>
 </body>
 
 </html>

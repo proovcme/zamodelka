@@ -14,6 +14,7 @@ import { TrayDrawingTool } from "./bim-components/TrayDrawingTool";
 import { PipeDrawingTool } from "./bim-components/PipeDrawingTool";
 import { ElectricalPlacementTool } from "./bim-components/ElectricalPlacementTool";
 import { FittingGenerator } from "./bim-components/FittingGenerator";
+import { Snapping } from "./bim-components/Snapping";
 
 
 BUI.Manager.init();
@@ -54,6 +55,20 @@ const worldGrid = components.get(OBC.Grids).create(world);
 worldGrid.material.uniforms.uColor.value = new THREE.Color(0x494b50);
 worldGrid.material.uniforms.uSize1.value = 0.1; // Сетка с шагом 100 мм для привязки
 worldGrid.material.uniforms.uSize2.value = 1.0; // Основные линии каждые 1000 мм (1 м)
+
+// Синхронизация визуальной сетки с текущей чертежной отметкой
+window.addEventListener("elevation-updated", (event: any) => {
+  const elevMm = event.detail.elevation ?? 0;
+  if (worldGrid && worldGrid.three) {
+    worldGrid.three.position.y = elevMm / 1000;
+  }
+  const label = document.getElementById("viewport-elevation-label");
+  if (label) {
+    const elevM = (elevMm / 1000).toFixed(3);
+    label.innerText = (elevMm >= 0 ? "+" : "") + elevM;
+  }
+});
+
 
 const resizeWorld = () => {
   world.renderer?.resize();
@@ -122,6 +137,8 @@ electricalPlacementTool.setElements(projectElements, () => {
   window.dispatchEvent(new CustomEvent("elements-updated"));
 });
 (window as any).electricalPlacementTool = electricalPlacementTool;
+(window as any).isPropertiesPanelOpen = false;
+
 
 
 components.get(OBC.Raycasters).get(world);
@@ -198,10 +215,6 @@ highlighter.setup({
 
 // Clipper Setup
 const clipper = components.get(OBC.Clipper);
-viewport.ondblclick = () => {
-  if (clipper.enabled) clipper.create(world);
-};
-
 window.addEventListener("keydown", (event) => {
   if (event.code === "Delete" || event.code === "Backspace") {
     clipper.delete(world);
@@ -221,8 +234,6 @@ lengthMeasurer.list.onItemAdded.add((line) => {
   world.camera.controls.fitToSphere(sphere, true);
 });
 
-viewport.addEventListener("dblclick", () => lengthMeasurer.create());
-
 window.addEventListener("keydown", (event) => {
   if (event.code === "Delete" || event.code === "Backspace") {
     lengthMeasurer.delete();
@@ -241,25 +252,87 @@ areaMeasurer.list.onItemAdded.add((area) => {
   world.camera.controls.fitToSphere(sphere, true);
 });
 
-viewport.addEventListener("dblclick", () => {
-  areaMeasurer.create();
-});
-
 window.addEventListener("keydown", (event) => {
   if (event.code === "Enter" || event.code === "NumpadEnter") {
     areaMeasurer.endCreation();
   }
 });
 
+// Унифицированный обработчик двойного клика для измерительных инструментов
+viewport.addEventListener("dblclick", () => {
+  if (areaMeasurer.enabled) {
+    areaMeasurer.endCreation();
+  }
+});
+
 // Define what happens when a fragments model has been loaded
-fragments.list.onItemSet.add(async ({ value: model }) => {
+fragments.list.onItemSet.add(async ({ key, value: model }) => {
   model.useCamera(world.camera.three);
   model.getClippingPlanesEvent = () => {
     return Array.from(world.renderer!.three.clippingPlanes) || [];
   };
+
+  const savedVisible = localStorage.getItem(`model_visible_${key}`);
+  if (savedVisible !== null) {
+    model.object.visible = savedVisible === "true";
+  }
+
+  // Восстанавливаем сохраненное смещение и поворот подложки (FR-IFC-CTX-2)
+  const px = localStorage.getItem(`model_pos_x_${key}`);
+  const py = localStorage.getItem(`model_pos_y_${key}`);
+  const pz = localStorage.getItem(`model_pos_z_${key}`);
+  const ry = localStorage.getItem(`model_rot_y_${key}`);
+  
+  if (px !== null) model.object.position.x = Number(px) / 1000;
+  if (py !== null) model.object.position.y = Number(py) / 1000;
+  if (pz !== null) model.object.position.z = Number(pz) / 1000;
+  if (ry !== null) model.object.rotation.y = (Number(ry) * Math.PI) / 180;
+
   world.scene.three.add(model.object);
   await fragments.core.update(true);
+  window.dispatchEvent(new CustomEvent("fragments-list-updated"));
 });
+
+// Функция для синхронизации всех трехмерных мешей (IFC и CAD) с мешами мира для работы измерителей и сечений
+function rebuildWorldMeshes() {
+  if (!world) return;
+  world.meshes.clear();
+  
+  // 1. Добавляем меши всех загруженных и видимых IFC подложек.
+  // ВАЖНО: у мешей IFC-фрагментов That Open позиция хранится на GPU и НЕ имеет
+  // CPU-массива (`position.array === undefined`). Стандартный raycast (three-mesh-bvh),
+  // который использует OBC-рейкастер измерений/сечения, на таких мешах ПАДАЕТ
+  // (`Cannot read properties of undefined (reading '0')`) → инструменты «Длина/Площадь/
+  // Сечение» молча перестают работать при загруженном IFC. Поэтому такие меши НЕ кладём
+  // в world.meshes. (Измерение по самим воздуховодам/стенам — работает, у них CPU-геометрия.)
+  for (const model of fragments.list.values()) {
+    if (model.object && model.object.visible !== false) {
+      model.object.traverse((child) => {
+        if (
+          child instanceof THREE.Mesh &&
+          (child.geometry as THREE.BufferGeometry)?.attributes?.position?.array
+        ) {
+          world.meshes.add(child);
+        }
+      });
+    }
+  }
+  
+  // 2. Добавляем меши всех нарисованных CAD элементов (воздуховоды, тройники, лотки, трубы, стены и т.д.)
+  if (ductDrawingTool && ductDrawingTool.ductsGroup) {
+    ductDrawingTool.ductsGroup.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        world.meshes.add(child);
+      }
+    });
+  }
+  
+  console.log(`World meshes populated: ${world.meshes.size} meshes total.`);
+}
+
+// Подписываемся на события обновления моделей и элементов для авто-синхронизации мешей
+window.addEventListener("fragments-list-updated", rebuildWorldMeshes);
+window.addEventListener("elements-updated", rebuildWorldMeshes);
 
 // Viewport Layouts
 const [viewportSettings] = BUI.Component.create(viewportSettingsTemplate, {
@@ -301,6 +374,14 @@ function highlightCustomMesh(mesh: THREE.Mesh) {
   });
   
   mesh.material = highlightMat;
+
+  // Центрируем вращение камеры вокруг выбранного кастомного элемента
+  if (world && world.camera && world.camera.controls) {
+    const box = new THREE.Box3().setFromObject(mesh);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    world.camera.controls.setTarget(center.x, center.y, center.z, true);
+  }
 }
 
 function clearCustomSelection() {
@@ -424,8 +505,171 @@ window.addEventListener("keydown", (event) => {
   });
 });
 
-// Слушатель клика для выбора элементов
+// Глобальный обработчик: [ / ] и Q / E — переключение активной отметки по этажам
+window.addEventListener("keydown", (event) => {
+  const activeEl = document.activeElement;
+  if (
+    activeEl &&
+    (activeEl.tagName === "INPUT" ||
+      activeEl.tagName === "SELECT" ||
+      activeEl.tagName === "TEXTAREA" ||
+      activeEl.hasAttribute("contenteditable"))
+  ) {
+    return;
+  }
+
+  const keys = ["[", "]", "q", "e"];
+  const key = event.key.toLowerCase();
+  if (!keys.includes(key)) return;
+
+  const levels = (window as any).projectLevels || {};
+  const sortedLevels = Object.entries(levels)
+    .map(([name, height]) => ({ name, height: Number(height) }))
+    .sort((a, b) => a.height - b.height);
+
+  if (sortedLevels.length === 0) return;
+
+  const currentElevation = (window as any).drawingSettings?.currentElevation ?? 0;
+
+  if (key === "[" || key === "q") {
+    // Ищем ближайший уровень снизу
+    let targetLevel = sortedLevels[0];
+    for (let i = sortedLevels.length - 1; i >= 0; i--) {
+      if (sortedLevels[i].height < currentElevation) {
+        targetLevel = sortedLevels[i];
+        break;
+      }
+    }
+    const nextElev = targetLevel.height;
+    if (!(window as any).drawingSettings) (window as any).drawingSettings = {};
+    (window as any).drawingSettings.currentElevation = nextElev;
+    window.dispatchEvent(new CustomEvent("elevation-updated", { detail: { elevation: nextElev } }));
+    window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+  } 
+  else if (key === "]" || key === "e") {
+    // Ищем ближайший уровень сверху
+    let targetLevel = sortedLevels[sortedLevels.length - 1];
+    for (let i = 0; i < sortedLevels.length; i++) {
+      if (sortedLevels[i].height > currentElevation) {
+        targetLevel = sortedLevels[i];
+        break;
+      }
+    }
+    const nextElev = targetLevel.height;
+    if (!(window as any).drawingSettings) (window as any).drawingSettings = {};
+    (window as any).drawingSettings.currentElevation = nextElev;
+    window.dispatchEvent(new CustomEvent("elevation-updated", { detail: { elevation: nextElev } }));
+    window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+  }
+});
+
+
+// Слушатель клика для выбора элементов и расстановки пометок
 viewport.addEventListener("pointerdown", (event) => {
+  if ((window as any).notePlacementActive) {
+    if (event.button !== 0) return; // Только левый клик
+
+    const rect = viewport.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(x, y), world.camera.three);
+
+    const targetPoint = new THREE.Vector3();
+    const ifcIntersect = Snapping.getIfcIntersection(raycaster, fragments);
+    
+    if (ifcIntersect) {
+      targetPoint.copy(ifcIntersect.point);
+    } else {
+      const meshes: THREE.Object3D[] = [];
+      ductDrawingTool.ductsGroup.traverse((child: THREE.Object3D) => {
+        if (child instanceof THREE.Mesh) meshes.push(child);
+      });
+      const intersects = raycaster.intersectObjects(meshes, true);
+      if (intersects.length > 0) {
+        targetPoint.copy(intersects[0].point);
+      } else {
+        const hPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -((window as any).drawingSettings?.currentElevation || 0) / 1000);
+        if (!raycaster.ray.intersectPlane(hPlane, targetPoint)) {
+          return;
+        }
+      }
+    }
+
+    // Плавающий ввод текста пометки прямо в точке клика (вместо window.prompt —
+    // он неудобен и в ряде окружений/прод глушится, из-за чего пометка не создавалась).
+    const screenX = event.clientX;
+    const screenY = event.clientY;
+    const pos: [number, number, number] = [
+      Math.round(targetPoint.x * 1000),
+      Math.round(targetPoint.y * 1000),
+      Math.round(targetPoint.z * 1000),
+    ];
+
+    // Один клик = одна пометка: сразу выходим из режима размещения
+    (window as any).notePlacementActive = false;
+    viewport.style.cursor = "default";
+    window.dispatchEvent(new CustomEvent("project-notes-updated"));
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Текст пометки · Enter — ок, Esc — отмена";
+    Object.assign(input.style, {
+      position: "fixed",
+      left: `${screenX}px`,
+      top: `${screenY}px`,
+      zIndex: "10000",
+      width: "260px",
+      padding: "6px 10px",
+      fontSize: "13px",
+      borderRadius: "6px",
+      border: "1px solid #3b82f6",
+      background: "#22262c",
+      color: "#e5e7eb",
+      boxShadow: "0 4px 14px rgba(0,0,0,0.45)",
+      outline: "none",
+    } as Partial<CSSStyleDeclaration>);
+    document.body.appendChild(input);
+    setTimeout(() => input.focus(), 0);
+
+    let done = false;
+    const cleanup = () => {
+      if (input.parentElement) input.parentElement.removeChild(input);
+    };
+    const commit = () => {
+      if (done) return;
+      done = true;
+      const text = input.value.trim();
+      cleanup();
+      if (!text) return;
+      const noteEl = {
+        id: "note_" + Math.random().toString(36).substr(2, 9),
+        type: "note",
+        position: pos,
+        text,
+        author: "Инженер",
+        createdAt: new Date().toLocaleString(),
+      };
+      projectElements.push(noteEl);
+      ductDrawingTool.renderAll(projectElements);
+      window.dispatchEvent(new CustomEvent("elements-updated"));
+      window.dispatchEvent(new CustomEvent("project-notes-updated"));
+    };
+    const cancel = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+    };
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation(); // не триггерим горячие клавиши сцены во время ввода
+      if (e.key === "Enter") commit();
+      else if (e.key === "Escape") cancel();
+    });
+    input.addEventListener("blur", commit);
+    return;
+  }
+
   const ductTool = (window as any).ductDrawingTool;
   const wallTool = (window as any).wallDrawingTool;
   const terminalTool = (window as any).terminalPlacementTool;
@@ -444,6 +688,28 @@ viewport.addEventListener("pointerdown", (event) => {
     (pipeTool && pipeTool.enabled) ||
     (electricalTool && electricalTool.enabled)
   ) {
+    return;
+  }
+
+  // Если активны измерительные инструменты или сечение, обрабатываем клик и выходим
+  if (clipper.enabled) {
+    if (event.button === 0) {
+      clipper.create(world);
+    }
+    return;
+  }
+
+  if (lengthMeasurer.enabled) {
+    if (event.button === 0) {
+      lengthMeasurer.create();
+    }
+    return;
+  }
+
+  if (areaMeasurer.enabled) {
+    if (event.button === 0) {
+      areaMeasurer.create();
+    }
     return;
   }
 
@@ -508,8 +774,13 @@ viewport.addEventListener("pointerdown", (event) => {
 
 // Content Grid Setup
 const viewportCardTemplate = () => BUI.html`
-  <div class="dashboard-card" style="padding: 0px;">
+  <div class="dashboard-card" style="padding: 0px; position: relative;">
     ${viewport}
+    <div style="position: absolute; bottom: 1rem; right: 1rem; background: rgba(24, 27, 31, 0.85); border: 1px solid var(--border, #2e333b); color: #dde1e7; padding: 0.3rem 0.6rem; border-radius: 4px; font-family: monospace; font-size: 0.85rem; pointer-events: none; z-index: 10; display: flex; align-items: center; gap: 0.35rem; box-shadow: var(--sh-sm, 0 2px 8px rgba(0,0,0,.28));">
+      <span style="opacity: 0.7;">Отметка:</span>
+      <span id="viewport-elevation-label" style="font-weight: bold; color: var(--c-bim, #178a99);">+0.000</span>
+      <span style="opacity: 0.7;">м</span>
+    </div>
   </div>
 `;
 
@@ -602,3 +873,8 @@ app.layouts = {
 };
 
 app.layout = "App";
+
+// Trigger a window resize to re-fit the viewport rendering under the header
+setTimeout(() => {
+  window.dispatchEvent(new Event("resize"));
+}, 100);

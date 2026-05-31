@@ -3,6 +3,7 @@ import * as OBC from "@thatopen/components";
 import { DuctDrawingTool, colorNameToHex } from "../DuctDrawingTool";
 import { FittingGenerator } from "../FittingGenerator";
 import { SmartSnap } from "../SmartSnap";
+import { Snapping } from "../Snapping";
 
 
 export interface TerminalElement {
@@ -242,11 +243,22 @@ export class TerminalPlacementTool {
 
     this.raycaster.setFromCamera(new THREE.Vector2(x, y), this.world.camera.three);
 
-    // Привязка к горизонтальной плоскости на активной отметке
-    const hPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(this.elevation / 1000));
+    const fragments = this.components.get(OBC.FragmentsManager);
+    const ifcIntersect = event.altKey ? Snapping.getIfcIntersection(this.raycaster, fragments) : null;
     const targetPoint = new THREE.Vector3();
 
-    if (this.raycaster.ray.intersectPlane(hPlane, targetPoint)) {
+    let gotPoint = false;
+    if (ifcIntersect) {
+      targetPoint.copy(ifcIntersect.point);
+      gotPoint = true;
+    } else {
+      const hPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(this.elevation / 1000));
+      if (this.raycaster.ray.intersectPlane(hPlane, targetPoint)) {
+        gotPoint = true;
+      }
+    }
+
+    if (gotPoint) {
       // Сетка 100мм
       const step = 0.1;
       targetPoint.x = Math.round(targetPoint.x / step) * step;
@@ -388,6 +400,20 @@ export class TerminalPlacementTool {
       if (!this.projectedPoint) return;
 
       this.smartSnap.clearGuides(this.world.scene.three);
+
+      // Проверяем клик по IFC для обновления отметки
+      const fragments = this.components.get(OBC.FragmentsManager);
+      const ifcIntersect = event.altKey ? Snapping.getIfcIntersection(this.raycaster, fragments) : null;
+      if (ifcIntersect) {
+        const heightMm = Math.round(ifcIntersect.point.y * 1000);
+        if (!(window as any).drawingSettings) {
+          (window as any).drawingSettings = {};
+        }
+        (window as any).drawingSettings.currentElevation = heightMm;
+        window.dispatchEvent(new CustomEvent("elevation-updated", { detail: { elevation: heightMm } }));
+        window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+        this.elevation = heightMm;
+      }
 
       const id = `term-${Date.now()}-${Math.round(Math.random() * 1000)}`;
       const pos = this.projectedPoint;

@@ -124,6 +124,31 @@ export abstract class BaseLineTool {
   setElevation(elevationMm: number) {
     this.activeParams.elevation = elevationMm;
     this.mousePlane.constant = -elevationMm / 1000;
+
+    // Автоматический вертикальный сегмент при смене отметки во время активного черчения
+    if (this.enabled && this.currentStep === "drawing" && this.startPoint) {
+      const newY = elevationMm / 1000;
+      const oldY = this.startPoint.y;
+      
+      // Если отметка высоты действительно изменилась
+      if (Math.abs(newY - oldY) > 0.001) {
+        console.log(`Auto vertical transition: creating segment from Y=${oldY}m to Y=${newY}m`);
+        const verticalEndPoint = this.startPoint.clone();
+        verticalEndPoint.y = newY;
+        
+        // Сохраняем вертикальный сегмент
+        this.saveSegment(this.startPoint, verticalEndPoint);
+        
+        // Смещаем стартовую точку черчения на новую высоту
+        this.startPoint = verticalEndPoint;
+        
+        // Сбрасываем направление предыдущего сегмента, чтобы не блокировались повороты на новой высоте
+        this.lastSegmentDir = null;
+        
+        // Сбрасываем текущую линию предпросмотра
+        this.removePreview();
+      }
+    }
   }
 
   setSnappingSettings(settings: Partial<SnappingSettings>) {
@@ -133,24 +158,58 @@ export abstract class BaseLineTool {
   protected handleMouseMove = (event: MouseEvent) => {
     if (!this.enabled || this.currentStep === "idle") return;
 
-    const intersection = this.getMouseIntersection(event);
-    if (!intersection) {
-      if (this.snapIndicator) this.snapIndicator.visible = false;
-      this.hideCadTooltip();
-      return;
+    const dom = this.world.renderer?.three.domElement;
+    if (!dom) return;
+
+    const rect = dom.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    this.raycaster.setFromCamera(new THREE.Vector2(x, y), this.world.camera.three);
+
+    const fragments = this.components.get(OBC.FragmentsManager);
+    // Привязка к IFC — ТОЛЬКО при зажатом Alt. Иначе IFC «захватывает» курсор и
+    // мешает свободному черчению рядом с моделью (упирается в баундари).
+    const ifcIntersect = event.altKey ? Snapping.getIfcIntersection(this.raycaster, fragments) : null;
+    let snappedPoint = new THREE.Vector3();
+    let isIfcSnapped = false;
+
+    if (ifcIntersect) {
+      isIfcSnapped = true;
+      const hitPoint = ifcIntersect.point;
+
+      // Привязываем X и Z к элементам или сетке, но сохраняем Y отметку IFC
+      const closestNode = Snapping.findClosestNode(hitPoint, this.projectElements, this.snappingSettings.snapThreshold);
+      if (closestNode) {
+        snappedPoint.copy(closestNode);
+      } else {
+        const closestSegment = Snapping.findClosestPointOnSegments(hitPoint, this.projectElements, this.snappingSettings.snapThreshold);
+        if (closestSegment) {
+          snappedPoint.copy(closestSegment);
+        } else {
+          snappedPoint.x = Math.round(hitPoint.x / this.snappingSettings.gridStep) * this.snappingSettings.gridStep;
+          snappedPoint.z = Math.round(hitPoint.z / this.snappingSettings.gridStep) * this.snappingSettings.gridStep;
+          snappedPoint.y = hitPoint.y;
+        }
+      }
+    } else {
+      const intersection = this.getMouseIntersection(event);
+      if (!intersection) {
+        if (this.snapIndicator) this.snapIndicator.visible = false;
+        this.hideCadTooltip();
+        return;
+      }
+      snappedPoint = Snapping.applySnapping(
+        intersection,
+        this.activeParams.elevation,
+        this.projectElements,
+        this.snappingSettings
+      );
     }
 
     // Сохраняем положение курсора
     this.lastMouseX = event.clientX;
     this.lastMouseY = event.clientY;
-
-    // 1. Сначала привязываем точку к сетке/узлам
-    let snappedPoint = Snapping.applySnapping(
-      intersection,
-      this.activeParams.elevation,
-      this.projectElements,
-      this.snappingSettings
-    );
 
     // 1b. Smart alignment snapping (Miro/Visio style)
     const { snapped: smartSnapped, guides } = this.smartSnap.snap(
@@ -192,6 +251,9 @@ export abstract class BaseLineTool {
     if (this.snapIndicator) {
       this.snapIndicator.position.copy(snappedPoint);
       this.snapIndicator.visible = true;
+      if ((this.snapIndicator.material as THREE.MeshBasicMaterial).color) {
+        (this.snapIndicator.material as THREE.MeshBasicMaterial).color.setHex(isIfcSnapped ? 0xfbbf24 : 0x00ffcc);
+      }
     }
   };
 
@@ -208,25 +270,71 @@ export abstract class BaseLineTool {
 
     if (event.button !== 0) return;
 
-    const intersection = this.getMouseIntersection(event);
-    if (!intersection) return;
+    const dom = this.world.renderer?.three.domElement;
+    if (!dom) return;
 
-    let snappedPoint = Snapping.applySnapping(
-      intersection,
-      this.activeParams.elevation,
-      this.projectElements,
-      this.snappingSettings
-    );
+    const rect = dom.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    this.raycaster.setFromCamera(new THREE.Vector2(x, y), this.world.camera.three);
+
+    const fragments = this.components.get(OBC.FragmentsManager);
+    // Привязка к IFC (взять точку и отметку с поверхности) — ТОЛЬКО при зажатом Alt.
+    const ifcIntersect = event.altKey ? Snapping.getIfcIntersection(this.raycaster, fragments) : null;
+    let snappedPoint = new THREE.Vector3();
+
+    if (ifcIntersect) {
+      const hitPoint = ifcIntersect.point;
+      const heightMm = Math.round(hitPoint.y * 1000);
+
+      // Записываем отметку глобально
+      if (!(window as any).drawingSettings) {
+        (window as any).drawingSettings = {};
+      }
+      (window as any).drawingSettings.currentElevation = heightMm;
+      window.dispatchEvent(new CustomEvent("elevation-updated", { detail: { elevation: heightMm } }));
+      window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+
+      this.activeParams.elevation = heightMm;
+      this.mousePlane.constant = -hitPoint.y;
+
+      const closestNode = Snapping.findClosestNode(hitPoint, this.projectElements, this.snappingSettings.snapThreshold);
+      if (closestNode) {
+        snappedPoint.copy(closestNode);
+      } else {
+        const closestSegment = Snapping.findClosestPointOnSegments(hitPoint, this.projectElements, this.snappingSettings.snapThreshold);
+        if (closestSegment) {
+          snappedPoint.copy(closestSegment);
+        } else {
+          snappedPoint.x = Math.round(hitPoint.x / this.snappingSettings.gridStep) * this.snappingSettings.gridStep;
+          snappedPoint.z = Math.round(hitPoint.z / this.snappingSettings.gridStep) * this.snappingSettings.gridStep;
+          snappedPoint.y = hitPoint.y;
+        }
+      }
+    } else {
+      const intersection = this.getMouseIntersection(event);
+      if (!intersection) return;
+      snappedPoint = Snapping.applySnapping(
+        intersection,
+        this.activeParams.elevation,
+        this.projectElements,
+        this.snappingSettings
+      );
+    }
 
     if (this.currentStep === "waiting-start") {
       this.startPoint = snappedPoint.clone();
       
       // Наследуем параметры существующего элемента при привязке к его узлу
-      const closestNode = Snapping.findClosestNode(intersection, this.projectElements, this.snappingSettings.snapThreshold);
-      if (closestNode) {
-        const closestElem = this.findClosestElementToNode(closestNode);
-        if (closestElem) {
-          this.inheritParameters(closestElem);
+      const intersectionForInherit = ifcIntersect ? ifcIntersect.point : this.getMouseIntersection(event);
+      if (intersectionForInherit) {
+        const closestNode = Snapping.findClosestNode(intersectionForInherit, this.projectElements, this.snappingSettings.snapThreshold);
+        if (closestNode) {
+          const closestElem = this.findClosestElementToNode(closestNode);
+          if (closestElem) {
+            this.inheritParameters(closestElem);
+          }
         }
       }
       

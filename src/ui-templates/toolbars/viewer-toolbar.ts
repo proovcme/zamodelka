@@ -16,7 +16,10 @@ const originalColors = new Map<
   { color: number; transparent: boolean; opacity: number }
 >();
 
+(window as any).isGhostModeActive = false;
+
 const setModelTransparent = (components: OBC.Components) => {
+  if (!components) return;
   const fragments = components.get(OBC.FragmentsManager);
 
   const materials = [...fragments.core.models.materials.list.values()];
@@ -36,17 +39,18 @@ const setModelTransparent = (components: OBC.Components) => {
     });
 
     material.transparent = true;
-    material.opacity = 0.05;
+    material.opacity = 0.25; // Полупрозрачность 0.2-0.3
     material.needsUpdate = true;
     if ("color" in material) {
-      material.color.setColorName("white");
+      material.color.setHex(0x888888); // Серый цвет
     } else {
-      material.lodColor.setColorName("white");
+      material.lodColor.setHex(0x888888); // Серый цвет
     }
   }
+  fragments.core.update(true);
 };
 
-const restoreModelMaterials = () => {
+const restoreModelMaterials = (components: OBC.Components) => {
   for (const [material, data] of originalColors) {
     const { color, transparent, opacity } = data;
     material.transparent = transparent;
@@ -59,7 +63,31 @@ const restoreModelMaterials = () => {
     material.needsUpdate = true;
   }
   originalColors.clear();
+  if (components) {
+    const fragments = components.get(OBC.FragmentsManager);
+    fragments.core.update(true);
+  }
 };
+
+(window as any).toggleGhostMode = (active?: boolean) => {
+  const comp = (window as any).globalComponents;
+  if (!comp) return;
+
+  const shouldActivate = active !== undefined ? active : !(window as any).isGhostModeActive;
+  if (shouldActivate) {
+    if (!(window as any).isGhostModeActive) {
+      setModelTransparent(comp);
+      (window as any).isGhostModeActive = true;
+    }
+  } else {
+    if ((window as any).isGhostModeActive) {
+      restoreModelMaterials(comp);
+      (window as any).isGhostModeActive = false;
+    }
+  }
+  window.dispatchEvent(new CustomEvent("ghost-mode-changed"));
+};
+
 
 // Хранилище сортамента и состояния выбора
 let sortamentList: any[] = [];
@@ -295,6 +323,14 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
     update();
   };
   window.addEventListener("tool-deactivated", (window as any)[listenerName]);
+  
+  // Обновляем состояние кнопки свойств при закрытии панели изнутри
+  const panelToggleListener = "__propertiesPanelToggleListener";
+  if ((window as any)[panelToggleListener]) {
+    window.removeEventListener("properties-panel-toggle", (window as any)[panelToggleListener]);
+  }
+  (window as any)[panelToggleListener] = () => update();
+  window.addEventListener("properties-panel-toggle", (window as any)[panelToggleListener]);
 
   // Синхронизируем параметры при привязке черчения к существующей трассе
   const syncListenerName = "__toolParamsSyncListener";
@@ -478,11 +514,130 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
   };
 
   const onToggleGhost = () => {
-    if (originalColors.size) {
-      restoreModelMaterials();
-    } else {
-      setModelTransparent(components);
+    (window as any).toggleGhostMode();
+    update();
+  };
+
+  const onExportRevit = () => {
+    const tool = (window as any).ductDrawingTool;
+    if (!tool) {
+      alert("Инструмент черчения не найден!");
+      return;
     }
+    const elements = tool.projectElements || [];
+
+    const levelsList = (window as any).projectLevels || { "Уровень пола": 0 };
+    const levels = Object.entries(levelsList).map(([name, val]) => ({
+      name,
+      elevation: Number(val)
+    }));
+
+    const systemsList = (window as any).systemColorSettings || { "Приточный": "синий" };
+    const systems = Object.keys(systemsList).map((name) => {
+      let domain = "HVAC";
+      if (["ХВС", "ГВС", "Канализация"].includes(name)) {
+        domain = "Plumbing";
+      } else if (name === "Кабель-канал") {
+        domain = "Electrical";
+      }
+      return { name, domain };
+    });
+
+    const getClosestLevel = (yMm: number) => {
+      let closestName = "Уровень пола";
+      let minDiff = Infinity;
+      for (const lvl of levels) {
+        const diff = Math.abs(yMm - lvl.elevation);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestName = lvl.name;
+        }
+      }
+      return closestName;
+    };
+
+    const formattedElements = elements.map((elem: any) => {
+      const base: any = {
+        id: elem.id,
+        type: elem.type,
+      };
+
+      let yCoord = 0;
+      if (elem.start && Array.isArray(elem.start)) {
+        yCoord = elem.start[1];
+      } else if (elem.position && Array.isArray(elem.position)) {
+        yCoord = elem.position[1];
+      }
+      base.level = getClosestLevel(yCoord);
+
+      if (elem.start && elem.end && Array.isArray(elem.start) && Array.isArray(elem.end)) {
+        base.start = [elem.start[0], elem.start[1], elem.start[2]];
+        base.end = [elem.end[0], elem.end[1], elem.end[2]];
+      }
+
+      if (elem.position && Array.isArray(elem.position)) {
+        base.position = [elem.position[0], elem.position[1], elem.position[2]];
+      }
+
+      if (elem.type === "duct") {
+        base.shape = elem.shape || "round";
+        base.system = elem.system || "Приточный";
+        if (base.shape === "round") {
+          base.size = { d: elem.size?.d || 200 };
+        } else {
+          base.size = { w: elem.size?.w || 200, h: elem.size?.h || 200 };
+        }
+      } 
+      else if (elem.type === "pipe") {
+        base.system = elem.system || "ХВС";
+        base.material = elem.material || "steel_water";
+        base.size = { d: elem.diameter || 25 };
+      } 
+      else if (elem.type === "tray") {
+        base.kind = elem.kind || "solid";
+        base.size = { w: elem.width || 200, h: elem.height || 80 };
+      } 
+      else if (elem.type === "wall") {
+        base.height = elem.height || 3000;
+        base.thickness = elem.thickness || 200;
+        base.material = elem.material || "brick";
+      } 
+      else if (elem.type === "fitting") {
+        base.fittingType = elem.fittingType || "elbow";
+        base.shape = elem.shape || "round";
+        base.size = elem.size || {};
+        base.system = elem.system;
+      } 
+      else {
+        if (elem.width !== undefined) base.width = elem.width;
+        if (elem.height !== undefined) base.height = elem.height;
+        if (elem.hostWallId !== undefined) base.hostWallId = elem.hostWallId;
+        if (elem.ref !== undefined) base.ref = elem.ref;
+        if (elem.system !== undefined) base.system = elem.system;
+        if (elem.text !== undefined) base.text = elem.text;
+        if (elem.author !== undefined) base.author = elem.author;
+        if (elem.createdAt !== undefined) base.createdAt = elem.createdAt;
+      }
+
+      return base;
+    });
+
+    const revitProject = {
+      units: "mm",
+      levels,
+      systems,
+      elements: formattedElements
+    };
+
+    const blob = new Blob([JSON.stringify(revitProject, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `revit_project_${currentProjectId || "export"}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // Деактивация всех инструментов для предотвращения конфликтов
@@ -494,6 +649,17 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
     (window as any).trayDrawingTool?.deactivate();
     (window as any).pipeDrawingTool?.deactivate();
     (window as any).electricalPlacementTool?.deactivate();
+  };
+
+  // Режим расстановки пометок (аннотаций) — видимая кнопка в тулбаре
+  const onToggleNoteTool = () => {
+    const active = !(window as any).notePlacementActive;
+    if (active) deactivateAllTools();
+    (window as any).notePlacementActive = active;
+    const vp = document.querySelector("bim-viewport") as HTMLElement | null;
+    if (vp) vp.style.cursor = active ? "crosshair" : "default";
+    window.dispatchEvent(new CustomEvent("note-mode-changed"));
+    update();
   };
 
   // Проброс текущей отметки во все инструменты, использующие плоскость черчения
@@ -546,6 +712,16 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
   }
   (window as any)[levelsListenerName] = () => update();
   window.addEventListener("project-levels-updated", (window as any)[levelsListenerName]);
+
+  // Синхронизация подсветки кнопки «Пометка» (гаснет после установки/смены режима)
+  const noteModeListener = "__noteModeSyncListener";
+  if ((window as any)[noteModeListener]) {
+    window.removeEventListener("note-mode-changed", (window as any)[noteModeListener]);
+    window.removeEventListener("project-notes-updated", (window as any)[noteModeListener]);
+  }
+  (window as any)[noteModeListener] = () => update();
+  window.addEventListener("note-mode-changed", (window as any)[noteModeListener]);
+  window.addEventListener("project-notes-updated", (window as any)[noteModeListener]);
 
   // Слушаем события изменения отметки (например, клик по уровню в Диспетчере проекта)
   const elevListenerName = "__globalElevationSyncListener";
@@ -1056,6 +1232,208 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
     syncPipeParamsToTool();
   }
 
+  const renderDrawingParamsSection = () => {
+    if (isDuctToolEnabled) {
+      const filteredSortament = sortamentList.filter(
+        (item: any) => item.shape === selectedShape && item.ref !== "TRAY-200x80"
+      );
+      return BUI.html`
+        <bim-toolbar-section label="Параметры воздуховода" icon="mdi:pipe">
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedDuctSystem = val;
+              syncParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Система" style="width: 7.5rem;">
+            ${(() => {
+              const sysSettings = (window as any).systemColorSettings || {};
+              return Object.keys(sysSettings).map(sys => BUI.html`
+                <bim-option label=${sys} value=${sys} ?checked=${selectedDuctSystem === sys}></bim-option>
+              `);
+            })()}
+          </bim-dropdown>
+          
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedShape = val;
+              const filtered = sortamentList.filter(item => item.shape === selectedShape);
+              if (filtered.length > 0) {
+                selectedRef = filtered[0].ref;
+              }
+              syncParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Форма сечения" style="width: 7rem;">
+            <bim-option label="Круглый" value="round" ?checked=${selectedShape === "round"}></bim-option>
+            <bim-option label="Прямоугольный" value="rectangular" ?checked=${selectedShape === "rectangular"}></bim-option>
+          </bim-dropdown>
+
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedRef = val;
+              syncParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Размер сечения" style="width: 8rem;">
+            ${filteredSortament.map((item: any) => {
+              const label = item.shape === "round" 
+                ? `⌀${item.d} мм` 
+                : `${item.w}x${item.h} мм`;
+              return BUI.html`
+                <bim-option label=${label} value=${item.ref} ?checked=${selectedRef === item.ref}></bim-option>
+              `;
+            })}
+          </bim-dropdown>
+        </bim-toolbar-section>
+      `;
+    }
+    
+    if (isTrayToolEnabled) {
+      const traySortament = sortamentList.filter((item: any) => item.shape === "tray");
+      return BUI.html`
+        <bim-toolbar-section label="Параметры лотка" icon="mdi:lightning-bolt-outline">
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedTrayRef = val;
+              const item = sortamentList.find(i => i.ref === selectedTrayRef);
+              if (item) {
+                selectedTrayWidth = item.w;
+                selectedTrayHeight = item.h;
+              }
+              syncTrayParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Размер лотка" style="width: 8rem;">
+            ${traySortament.map((item: any) => BUI.html`
+              <bim-option label=${`${item.w}x${item.h} мм`} value=${item.ref} ?checked=${selectedTrayRef === item.ref}></bim-option>
+            `)}
+          </bim-dropdown>
+        </bim-toolbar-section>
+      `;
+    }
+    
+    if (isPipeToolEnabled) {
+      const pipeSortament = sortamentList.filter((item: any) => item.shape === "pipe");
+      return BUI.html`
+        <bim-toolbar-section label="Параметры трубопровода" icon="mdi:water-pump">
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedPipeSystem = val;
+              syncPipeParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Система" style="width: 7.5rem;">
+            ${(() => {
+              const sysSettings = (window as any).systemColorSettings || {};
+              return Object.keys(sysSettings).map(sys => BUI.html`
+                <bim-option label=${sys} value=${sys} ?checked=${selectedPipeSystem === sys}></bim-option>
+              `);
+            })()}
+          </bim-dropdown>
+          
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedPipeMaterial = val;
+              syncPipeParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Материал" style="width: 7rem;">
+            <bim-option label="Сталь" value="steel_water" ?checked=${selectedPipeMaterial === "steel_water"}></bim-option>
+            <bim-option label="ППR" value="ppr" ?checked=${selectedPipeMaterial === "ppr"}></bim-option>
+          </bim-dropdown>
+
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedPipeRef = val;
+              const item = sortamentList.find(i => i.ref === selectedPipeRef);
+              if (item) {
+                selectedPipeDiameter = item.d;
+              }
+              syncPipeParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Диаметр" style="width: 8rem;">
+            ${pipeSortament.map((item: any) => BUI.html`
+              <bim-option label=${`⌀${item.d} мм`} value=${item.ref} ?checked=${selectedPipeRef === item.ref}></bim-option>
+            `)}
+          </bim-dropdown>
+        </bim-toolbar-section>
+      `;
+    }
+
+    if (isWallToolEnabled) {
+      return BUI.html`
+        <bim-toolbar-section label="Параметры стены" icon="mdi:wall">
+          <bim-number-input suffix=" мм" step="100" .value=${selectedWallHeight} @change=${(e: any) => {
+            const val = Number(e.target.value);
+            if (!isNaN(val)) {
+              selectedWallHeight = val;
+              syncWallParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Высота стены" style="width: 6.5rem;"></bim-number-input>
+
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedWallThickness = Number(val);
+              syncWallParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Толщина стены" style="width: 6.5rem;">
+            <bim-option label="100 мм" value="100" ?checked=${selectedWallThickness === 100}></bim-option>
+            <bim-option label="200 мм" value="200" ?checked=${selectedWallThickness === 200}></bim-option>
+            <bim-option label="300 мм" value="300" ?checked=${selectedWallThickness === 300}></bim-option>
+            <bim-option label="400 мм" value="400" ?checked=${selectedWallThickness === 400}></bim-option>
+          </bim-dropdown>
+
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedWallMaterial = val;
+              syncWallParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Материал" style="width: 7.5rem;">
+            <bim-option label="Кирпич" value="brick" ?checked=${selectedWallMaterial === "brick"}></bim-option>
+            <bim-option label="Бетон" value="concrete" ?checked=${selectedWallMaterial === "concrete"}></bim-option>
+            <bim-option label="Гипсокартон" value="gypsum" ?checked=${selectedWallMaterial === "gypsum"}></bim-option>
+          </bim-dropdown>
+        </bim-toolbar-section>
+      `;
+    }
+
+    return BUI.html``;
+  };
+
   return BUI.html`
     <bim-toolbar>
       <bim-toolbar-section label="Проект" icon="mdi:folder">
@@ -1063,13 +1441,19 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
         <bim-button icon="mdi:folder-open" tooltip-title="Загрузить" tooltip-text="Загрузить проект с сохраненными трассами и стенами из базы данных" @click=${onLoadProject}></bim-button>
         <bim-button icon="mdi:file-excel" tooltip-title="Скачать Excel" tooltip-text="Выгрузить красивую ГОСТ-ведомость спецификации в Excel" @click=${onExportExcel}></bim-button>
         <bim-button icon="mdi:download-network" tooltip-title="Скачать IFC" tooltip-text="Выгрузить 3D-модель трассы в стандартный формат IFC2x3" @click=${onExportIfc}></bim-button>
+        <bim-button icon="mdi:export" tooltip-title="Экспорт в Revit" tooltip-text="Выгрузить проект в структурированный JSON для Revit API аддона" @click=${onExportRevit}></bim-button>
       </bim-toolbar-section>
-      
+
+      <bim-toolbar-section label="Аннотации" icon="mdi:comment-text-outline">
+        <bim-button icon="mdi:map-marker-plus" tooltip-title="Пометка" tooltip-text="Поставить текстовую пометку в 3D: клик по точке → ввод текста (Enter — ок, Esc — отмена)" ?active=${(window as any).notePlacementActive || false} @click=${onToggleNoteTool}></bim-button>
+      </bim-toolbar-section>
+
       <bim-toolbar-section label="Архитектура" icon="mdi:office-building">
         <bim-button icon="mdi:wall" tooltip-title="Стена" tooltip-text="Черчение стен кирпичных/бетонных/гипсокартонных с привязкой по углам и сетке" ?active=${isWallToolEnabled} @click=${onToggleWallTool}></bim-button>
         <bim-button icon="mdi:door" tooltip-title="Дверь" tooltip-text="Размещение двери в стену (вырезает проем автоматически!)" ?active=${isDoorToolEnabled} @click=${onToggleDoorTool}></bim-button>
         <bim-button icon="mdi:window-maximize" tooltip-title="Окно" tooltip-text="Размещение окна в стену (вырезает проем автоматически!)" ?active=${isWindowToolEnabled} @click=${onToggleWindowTool}></bim-button>
         <bim-button icon="mdi:pillar" tooltip-title="Колонна" tooltip-text="Размещение несущей железобетонной колонны 400x400мм" ?active=${isColumnToolEnabled} @click=${onToggleColumnTool}></bim-button>
+        <bim-button icon="mdi:desk" tooltip-title="Рабочее место" tooltip-text="Размещение комплексного рабочего места (стол, стул, ПК) (Пробел для поворота)" ?active=${isWorkstationToolEnabled} @click=${onToggleWorkstationTool}></bim-button>
       </bim-toolbar-section>
 
       <bim-toolbar-section label="Вентиляция" icon="mdi:windsock">
@@ -1091,16 +1475,14 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
         <bim-button icon="mdi:hand-wash" tooltip-title="Раковина" tooltip-text="Размещение раковины (только на стены!)" ?active=${isSinkToolEnabled} @click=${onToggleSinkTool}></bim-button>
       </bim-toolbar-section>
 
-      <bim-toolbar-section label="Офис" icon="mdi:briefcase">
-        <bim-button icon="mdi:monitor" tooltip-title="Рабочее место" tooltip-text="Размещение комплексного рабочего места (стол, стул, ПК) (Пробел для поворота)" ?active=${isWorkstationToolEnabled} @click=${onToggleWorkstationTool}></bim-button>
-      </bim-toolbar-section>
-
       <bim-toolbar-section label="Электрика" icon="mdi:flash">
         <bim-button icon="mdi:lightning-bolt-outline" tooltip-title="Кабельный лоток" tooltip-text="Черчение кабельных лотков с автоматическим размещением углов и тройников" ?active=${isTrayToolEnabled} @click=${onToggleTrayTool}></bim-button>
         <bim-button icon="mdi:power-socket-eu" tooltip-title="Розетка" tooltip-text="Размещение электрической розетки (только на стены!)" ?active=${isSocketToolEnabled} @click=${onToggleSocketTool}></bim-button>
         <bim-button icon="mdi:alpha-e-box" tooltip-title="Щит" tooltip-text="Размещение распределительного щита" ?active=${isPanelToolEnabled} @click=${onTogglePanelTool}></bim-button>
         <bim-button icon="mdi:lightbulb-on" tooltip-title="Светильник" tooltip-text="Размещение потолочного светильника" ?active=${isLightToolEnabled} @click=${onToggleLightTool}></bim-button>
       </bim-toolbar-section>
+
+      ${renderDrawingParamsSection()}
 
 
 
@@ -1111,6 +1493,17 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
 
       <bim-toolbar-section label="Выделение" icon=${appIcons.SELECT}>
         ${focusBtn}
+        <bim-button 
+          tooltip-title="Свойства" 
+          tooltip-text="Показать или скрыть панель свойств" 
+          icon="mdi:card-text-outline" 
+          ?active=${(window as any).isPropertiesPanelOpen === true}
+          @click=${() => {
+            (window as any).isPropertiesPanelOpen = !(window as any).isPropertiesPanelOpen;
+            window.dispatchEvent(new CustomEvent("properties-panel-toggle"));
+            update();
+          }}
+        ></bim-button>
         <bim-button tooltip-title=${tooltips.HIDE.TITLE} tooltip-text=${tooltips.HIDE.TEXT} icon=${appIcons.HIDE} @click=${onHide}></bim-button> 
         <bim-button tooltip-title=${tooltips.ISOLATE.TITLE} tooltip-text=${tooltips.ISOLATE.TEXT} icon=${appIcons.ISOLATE} @click=${onIsolate}></bim-button>
         <bim-button tooltip-title="Окрасить" tooltip-text="Задать цвет выбранным элементам" icon=${appIcons.COLORIZE}>
@@ -1121,10 +1514,6 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
             </div>
           </bim-context-menu>
         </bim-button>
-      </bim-toolbar-section> 
-
-      <bim-toolbar-section label="Платформа" icon="mdi:web">
-        <bim-button icon="mdi:web" tooltip-title="BIM.OVC.ME" tooltip-text="Открыть облачную BIM платформу Speckle" @click=${() => window.open("https://bim.ovc.me", "_blank")}></bim-button>
       </bim-toolbar-section>
     </bim-toolbar>
   `;

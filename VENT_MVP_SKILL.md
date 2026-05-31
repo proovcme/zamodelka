@@ -313,6 +313,48 @@ Three.js меши, поэтому выбор реализован **вручну
   `DuctDrawingTool.setElevation` и `EquipmentPlacementTool.setElevation`, которые двигают
   плоскость черчения. Меняя отметку между участками, получаешь вертикальный стояк.
 
+> Примечание: после рефактора привязки живут в `bim-components/Snapping.ts` +
+> `SmartSnap.ts`, а инструменты наследуют `BaseLineTool`. Принципы те же.
+
+### 11.1 ⚠️ Привязка к IFC — по Alt, и НЕ роняй рейкаст fragments (НЕ ОТКАТЫВАТЬ)
+Привязка курсора к загруженному IFC (взять точку/отметку с поверхности модели) включается
+**ТОЛЬКО при зажатом `Alt`**. Без Alt — свободное черчение по рабочей плоскости, IFC
+игнорируется. Гейт стоит в `BaseLineTool` (обработчики move и click):
+`const ifcIntersect = event.altKey ? Snapping.getIfcIntersection(...) : null;`
+
+**Почему так (реальный баг, уже чинили — не верни как было):** `Snapping.getIfcIntersection`
+раньше вызывался на КАЖДОЕ движение мыши безусловно и **падал** на
+`raycaster.intersectObjects(...)` — у fragments-мешей That Open часть мешей без валидного
+`geometry.attributes.position`, и стандартный THREE-рейкаст крашится
+(`Cannot read properties of undefined (reading '0')`). Хендлер движения падал → точка
+черчения замирала при заходе курсора на IFC → ощущалось как **«инструмент упирается в
+невидимую границу»**. (Это НЕ был «захват поверхности».)
+
+**Как сделано правильно (сохранять):**
+- `getIfcIntersection` фильтрует меши по наличию `geometry.attributes.position` и рейкастит
+  **по одному в `try/catch`** (битый меш не роняет весь хендлер), берёт ближайшее.
+- Снап к IFC — по `Alt` (по умолчанию свободное черчение приоритетно).
+Проверено в браузере: без Alt точка над зданием = рабочая плоскость; с Alt = поверхность IFC;
+ошибок нет.
+
+### 11.2 ⚠️ НЕ клади IFC-фрагменты в `world.meshes` (иначе измерения/сечение падают)
+`world.meshes` (множество, по которому OBC `SimpleRaycaster` рейкастит для **измерений
+(Length/Area) и сечения (Clipper)**) заполняет `rebuildWorldMeshes()` в `main.ts` (по
+событиям `fragments-list-updated` / `elements-updated`).
+
+**Грабля:** у мешей IFC-фрагментов That Open позиция хранится на GPU и **не имеет
+CPU-массива** (`geometry.attributes.position.array === undefined`). Стандартный
+three-mesh-bvh raycast на таких падает: `Cannot read properties of undefined (reading '0')`
+в `Mesh._computeIntersections`. Поскольку OBC-рейкастер измерителя срабатывает на КАЖДЫЙ
+pointermove — при загруженном IFC «Длина/Площадь/Сечение» молча перестают работать
+(замер не создаётся вообще). Долго казалось, что инструменты «для красоты».
+
+**Как правильно (сохранять):** в `rebuildWorldMeshes` добавлять меш в `world.meshes`
+только если `geometry.attributes.position.array` существует. CAD-меши (воздуховоды/стены/
+лотки — обычная CPU-геометрия) проходят и измеряются; IFC-фрагменты исключаются (по ним
+стандартный raycast всё равно невозможен). Проверено: после фикса Length и Clipper
+реально создают результат при загруженном IFC. Это та же природа, что §11.1.
+
 ---
 
 ## 12. Геометрия фасонных частей (как делать «красиво, как в Ревите»)
@@ -478,6 +520,13 @@ CORS открыт (`*`). БД — SQLite `vent_mvp.db` (создаётся и с
 9. **Не оборачивай `<bim-grid>` в обёртку, не починив `main.ts`** — корень
    `contentGridTemplate` должен остаться сеткой, иначе `grid.layouts` undefined →
    вьюпорт 0×0 → чёрный экран и WebGL `zero size` (§14.5).
+10. **Не вызывай `Snapping.getIfcIntersection` безусловно на каждый mousemove и не
+    рейкасть fragments «в лоб» через `intersectObjects`** — упадёт на мешах без
+    `position`-атрибута и заморозит черчение у IFC. Снап к IFC — по `Alt`, рейкаст —
+    per-mesh в `try/catch` (§11.1). Уже починено — не возвращай как было.
+11. **Не клади IFC-фрагменты в `world.meshes`** (`rebuildWorldMeshes`) — у них GPU-геометрия
+    без `position.array`, OBC-рейкастер измерений/сечения на них падает → Length/Area/Clipper
+    перестают работать при загруженном IFC. Фильтруй по `position.array` (§11.2). Починено.
 
 ---
 

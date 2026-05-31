@@ -82,6 +82,30 @@ export class DuctDrawingTool extends BaseLineTool {
         this.ductsGroup.add(mesh);
         this.renderedDucts.set(elem.id, mesh);
       } 
+      else if (elem.type === "note") {
+        // Рендерим 3D пин-маркер для заметки (янтарный шар со светящимся кольцом)
+        const markerPos = new THREE.Vector3(elem.position[0] / 1000, elem.position[1] / 1000, elem.position[2] / 1000);
+        const markerGeom = new THREE.SphereGeometry(0.15, 16, 16);
+        const markerMat = new THREE.MeshStandardMaterial({
+          color: 0xf59e0b, // Красивый янтарный
+          roughness: 0.1,
+          metalness: 0.8,
+          emissive: 0x3d2000
+        });
+        const markerMesh = new THREE.Mesh(markerGeom, markerMat);
+        markerMesh.position.copy(markerPos);
+        markerMesh.userData = { elementId: elem.id };
+
+        const ringGeom = new THREE.RingGeometry(0.2, 0.25, 32);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+        const ring = new THREE.Mesh(ringGeom, ringMat);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = -0.05;
+        markerMesh.add(ring);
+
+        this.ductsGroup.add(markerMesh);
+        this.renderedDucts.set(elem.id, markerMesh);
+      } 
       else if (elem.type === "wall") {
         // Автоматическая привязка дверей и окон без корректного hostWallId к ближайшей стене (до 400 мм)
         for (const op of elements) {

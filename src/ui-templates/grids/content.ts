@@ -42,10 +42,12 @@ export const contentGridTemplate: BUI.StatefullComponent<ContentGridState> = (
   if ((window as any)[listenerName]) {
     window.removeEventListener("custom-element-selected", (window as any)[listenerName]);
     window.removeEventListener("elements-updated", (window as any)[listenerName]);
+    window.removeEventListener("properties-panel-toggle", (window as any)[listenerName]);
   }
   (window as any)[listenerName] = () => update();
   window.addEventListener("custom-element-selected", (window as any)[listenerName]);
   window.addEventListener("elements-updated", (window as any)[listenerName]);
+  window.addEventListener("properties-panel-toggle", (window as any)[listenerName]);
 
   const panelKey = "__elementsDataPanelInstance";
   let elementsDataPanel = (window as any)[panelKey];
@@ -66,13 +68,20 @@ export const contentGridTemplate: BUI.StatefullComponent<ContentGridState> = (
       { components },
     );
 
+    // Панель «Пометки» вместо заглушки «Видовые точки» (механика та же — 3D-точка + камера;
+    // сами виды доделаем позже на этом же фундаменте).
+    const [notesPanel] = BUI.Component.create(
+      TEMPLATES.notesPanelTemplate,
+      { components },
+    );
+
     return BUI.html`
       <bim-tabs style="height: 100%; display: flex; flex-direction: column;">
         <bim-tab name="specification" label="Спецификация" icon="mdi:format-list-numbered" active>
           ${specificationPanel}
         </bim-tab>
-        <bim-tab name="viewpoints" label="Видовые точки" icon="mdi:camera">
-          <div style="padding: 1rem; color: var(--bim-ui_bg-contrast-60);">Видовые точки — в разработке</div>
+        <bim-tab name="notes" label="Пометки" icon="mdi:comment-text-multiple">
+          ${notesPanel}
         </bim-tab>
       </bim-tabs>
     `;
@@ -105,8 +114,7 @@ export const contentGridTemplate: BUI.StatefullComponent<ContentGridState> = (
     };
   };
 
-  const selectedElement = (window as any).selectedCustomElement;
-  const isOpen = selectedElement !== null && selectedElement !== undefined;
+  const isOpen = (window as any).isPropertiesPanelOpen === true;
 
   const drawerStyle = `
     position: absolute;

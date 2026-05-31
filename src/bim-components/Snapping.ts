@@ -166,4 +166,44 @@ export class Snapping {
 
     return result;
   }
+
+  /**
+   * Находит пересечение луча со всеми видимыми мешами загруженных fragments-моделей IFC
+   */
+  static getIfcIntersection(
+    raycaster: THREE.Raycaster,
+    fragments: any
+  ): { point: THREE.Vector3; distance: number } | null {
+    if (!fragments || !fragments.list) return null;
+    const ifcMeshes: THREE.Mesh[] = [];
+    for (const [_, model] of fragments.list) {
+      if (model.object && model.object.visible !== false) {
+        model.object.traverse((child: THREE.Object3D) => {
+          // Только меши с валидным position-атрибутом: у fragments бывают LOD/
+          // служебные меши без него, и стандартный raycast на них падает
+          // (Cannot read properties of undefined (reading '0')).
+          const geom = (child as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+          if ((child as THREE.Mesh).isMesh && geom?.attributes?.position) {
+            ifcMeshes.push(child as THREE.Mesh);
+          }
+        });
+      }
+    }
+    if (ifcMeshes.length === 0) return null;
+
+    // Рейкастим по одному в try/catch: один «битый» меш не должен ронять весь хендлер
+    let best: { point: THREE.Vector3; distance: number } | null = null;
+    for (const mesh of ifcMeshes) {
+      try {
+        const hits = raycaster.intersectObject(mesh, false);
+        if (hits.length > 0 && (!best || hits[0].distance < best.distance)) {
+          best = { point: hits[0].point, distance: hits[0].distance };
+        }
+      } catch {
+        // пропускаем меш, который не поддерживает стандартный raycast
+      }
+    }
+    return best;
+  }
 }
+

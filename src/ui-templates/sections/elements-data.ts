@@ -14,6 +14,7 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
   ElementsDataPanelState
 > = (state, update) => {
   const { components } = state;
+  const world = Array.from(components.get(OBC.Worlds).list.values())[0];
 
   const highlighter = components.get(OBF.Highlighter);
 
@@ -36,11 +37,22 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
 
   propsTable.preserveStructureOnFilter = true;
 
-  highlighter.events.select.onHighlight.add((modelIdMap) => {
+  highlighter.events.select.onHighlight.add(async (modelIdMap) => {
     // При выборе стандартных IFC элементов сбрасываем кастомное выделение
     (window as any).selectedCustomElement = null;
     updatePropsTable({ modelIdMap });
     update();
+
+    // Центрируем вращение камеры вокруг выбранного IFC элемента
+    if (world && world.camera && world.camera.controls) {
+      try {
+        const boundingBoxer = components.get(OBC.BoundingBoxer);
+        const center = await boundingBoxer.getCenter(modelIdMap);
+        world.camera.controls.setTarget(center.x, center.y, center.z, true);
+      } catch (err) {
+        console.error("Error setting camera target for IFC selection:", err);
+      }
+    }
   });
 
   highlighter.events.select.onClear.add(() => {
@@ -426,6 +438,8 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
       const highlighter = components.get(OBF.Highlighter);
       highlighter.clear("select");
       (window as any).selectedCustomElement = null;
+      (window as any).isPropertiesPanelOpen = false;
+      window.dispatchEvent(new CustomEvent("properties-panel-toggle"));
       window.dispatchEvent(new CustomEvent("custom-element-selected", { detail: null }));
     };
 

@@ -1,5 +1,4 @@
 import * as BUI from "@thatopen/ui";
-import * as CUI from "@thatopen/ui-obc";
 import * as OBC from "@thatopen/components";
 
 export interface ModelsPanelState {
@@ -11,6 +10,7 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
   update,
 ) => {
   const { components } = state;
+  const world = Array.from(components.get(OBC.Worlds).list.values())[0];
 
   const ifcLoader = components.get(OBC.IfcLoader);
   const fragments = components.get(OBC.FragmentsManager);
@@ -54,6 +54,7 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
   }
 
   // Подписка на кастомные события для реактивного обновления диспетчера проекта
+  // Подписка на кастомные события для реактивного обновления диспетчера проекта
   const listenerName = "__projectBrowserSyncListener";
   if ((window as any)[listenerName]) {
     window.removeEventListener("project-levels-updated", (window as any)[listenerName]);
@@ -62,6 +63,9 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
     window.removeEventListener("drawing-settings-external-updated", (window as any)[listenerName]);
     window.removeEventListener("tool-deactivated", (window as any)[listenerName]);
     window.removeEventListener("active-tool-changed", (window as any)[listenerName]);
+    window.removeEventListener("fragments-list-updated", (window as any)[listenerName]);
+    window.removeEventListener("ghost-mode-changed", (window as any)[listenerName]);
+    window.removeEventListener("project-notes-updated", (window as any)[listenerName]);
   }
   (window as any)[listenerName] = () => update();
   window.addEventListener("project-levels-updated", (window as any)[listenerName]);
@@ -70,13 +74,22 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
   window.addEventListener("drawing-settings-external-updated", (window as any)[listenerName]);
   window.addEventListener("tool-deactivated", (window as any)[listenerName]);
   window.addEventListener("active-tool-changed", (window as any)[listenerName]);
+  window.addEventListener("fragments-list-updated", (window as any)[listenerName]);
+  window.addEventListener("ghost-mode-changed", (window as any)[listenerName]);
+  window.addEventListener("project-notes-updated", (window as any)[listenerName]);
+
+  const listListenerName = "__fragmentsListSyncListener";
+  if (!(window as any)[listListenerName]) {
+    (window as any)[listListenerName] = true;
+    fragments.list.onItemSet.add(() => {
+      window.dispatchEvent(new CustomEvent("fragments-list-updated"));
+    });
+    fragments.list.onItemDeleted.add(() => {
+      window.dispatchEvent(new CustomEvent("fragments-list-updated"));
+    });
+  }
 
   const activeTab = (window as any).projectBrowserActiveTab || "params";
-
-  const [modelsList] = CUI.tables.modelsList({
-    components,
-    actions: { download: false },
-  });
 
   const onAddIfcModel = async ({ target }: { target: BUI.Button }) => {
     const input = document.createElement("input");
@@ -134,9 +147,31 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
     input.click();
   };
 
-  const onSearchModels = (e: Event) => {
-    const input = e.target as BUI.TextInput;
-    modelsList.queryString = input.value;
+  const onSearchModels = () => {
+    update();
+  };
+
+  const onToggleModelVisible = (model: any) => {
+    model.object.visible = !model.object.visible;
+    localStorage.setItem(`model_visible_${model.id}`, model.object.visible ? "true" : "false");
+    fragments.core.update(true);
+    update();
+  };
+
+  const onUnloadModel = async (model: any) => {
+    if (confirm(`Вы уверены, что хотите удалить модель "${model.name || model.id}"?`)) {
+      try {
+        await fragments.core.disposeModel(model.id);
+      } catch (e) {
+        console.warn("Failed disposeModel, manually removing:", e);
+        if (world && world.scene) {
+          world.scene.three.remove(model.object);
+        }
+        fragments.list.delete(model.id);
+      }
+      fragments.core.update(true);
+      update();
+    }
   };
 
   // --- УРОВНИ ЗДАНИЯ ---
@@ -491,6 +526,14 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
     updateSetting("selectedRef", val);
   };
 
+  const models = Array.from(fragments.list.values());
+  const searchQuery = ((document.getElementById("models-search-input") as BUI.TextInput)?.value || "").toLowerCase();
+
+  const filteredModels = models.filter((model: any) => {
+    const name = model.name || model.id || "";
+    return name.toLowerCase().includes(searchQuery);
+  });
+
   return BUI.html`
     <bim-panel-section fixed icon="mdi:sitemap" label="Диспетчер проекта">
       <div style="height: 100%; display: flex; flex-direction: column;">
@@ -705,10 +748,114 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
                 <bim-button label="Загрузить Fragments модель" icon="mdi:cube-send" @click=${onAddFragmentsModel}></bim-button>
               </div>
 
-              <bim-text-input @input=${onSearchModels} vertical placeholder="Поиск моделей..." debounce="200" style="width: 100%;"></bim-text-input>
+              <!-- Переключатель Ghost-режима -->
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0.5rem; background-color: var(--bim-ui_bg-contrast-20); border-radius: 4px; margin-bottom: 0.25rem;">
+                <span style="font-size: 0.82rem; color: var(--bim-ui_bg-contrast-80); font-weight: 500;">Полутоновая подложка (Ghost):</span>
+                <bim-button 
+                  label=${(window as any).isGhostModeActive ? "Вкл" : "Выкл"}
+                  icon=${(window as any).isGhostModeActive ? "mdi:eye" : "mdi:eye-off"}
+                  style="--bim-ui_accent-base: ${(window as any).isGhostModeActive ? "var(--bim-ui_accent-base, #00aaff)" : "#888888"}; flex: 0; min-width: 3.5rem;"
+                  @click=${() => {
+                    (window as any).toggleGhostMode();
+                    update();
+                  }}
+                ></bim-button>
+              </div>
+
+              <bim-text-input id="models-search-input" @input=${onSearchModels} vertical placeholder="Поиск моделей..." debounce="100" style="width: 100%;"></bim-text-input>
               
-              <div style="margin-top: 0.5rem;">
-                ${modelsList}
+              <div style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.35rem;">
+                ${filteredModels.length === 0 ? BUI.html`
+                  <div style="font-size: 0.8rem; color: var(--bim-ui_bg-contrast-60); text-align: center; padding: 1rem;">Нет загруженных моделей.</div>
+                ` : filteredModels.map((model: any) => {
+                  const isVisible = model.object.visible !== false;
+                  const name = model.name || model.id || "Без названия";
+                  
+                  const posX = Math.round(model.object.position.x * 1000);
+                  const posY = Math.round(model.object.position.y * 1000);
+                  const posZ = Math.round(model.object.position.z * 1000);
+                  const rotY = Math.round((model.object.rotation.y * 180) / Math.PI);
+
+                  const onTransformChange = (axis: "x" | "y" | "z" | "rot", val: number) => {
+                    if (axis === "x") {
+                      model.object.position.x = val / 1000;
+                      localStorage.setItem(`model_pos_x_${model.id}`, String(val));
+                    }
+                    if (axis === "y") {
+                      model.object.position.y = val / 1000;
+                      localStorage.setItem(`model_pos_y_${model.id}`, String(val));
+                    }
+                    if (axis === "z") {
+                      model.object.position.z = val / 1000;
+                      localStorage.setItem(`model_pos_z_${model.id}`, String(val));
+                    }
+                    if (axis === "rot") {
+                      model.object.rotation.y = (val * Math.PI) / 180;
+                      localStorage.setItem(`model_rot_y_${model.id}`, String(val));
+                    }
+                    fragments.core.update(true);
+                    update();
+                  };
+
+                  const onResetTransform = () => {
+                    model.object.position.set(0, 0, 0);
+                    model.object.rotation.set(0, 0, 0);
+                    localStorage.removeItem(`model_pos_x_${model.id}`);
+                    localStorage.removeItem(`model_pos_y_${model.id}`);
+                    localStorage.removeItem(`model_pos_z_${model.id}`);
+                    localStorage.removeItem(`model_rot_y_${model.id}`);
+                    fragments.core.update(true);
+                    update();
+                  };
+
+                  return BUI.html`
+                    <div style="display: flex; flex-direction: column; gap: 0.35rem; background-color: var(--bim-ui_bg-contrast-20); padding: 0.5rem; border-radius: 4px; border-left: 3px solid var(--bim-ui_accent-base, #00aaff);">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                        <div style="flex: 1; display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--bim-ui_bg-contrast-100); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${name}">
+                          <bim-icon icon="mdi:cube-outline" style="opacity: 0.7;"></bim-icon>
+                          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: bold;">${name}</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.25rem;">
+                          <bim-button 
+                            icon=${isVisible ? "mdi:eye" : "mdi:eye-off"} 
+                            style="--bim-ui_accent-base: ${isVisible ? "var(--bim-ui_accent-base, #00aaff)" : "#888888"}; flex: 0;" 
+                            @click=${() => onToggleModelVisible(model)} 
+                            tooltip-title=${isVisible ? "Скрыть модель" : "Показать модель"}
+                          ></bim-button>
+                          <bim-button 
+                            icon="mdi:delete" 
+                            style="--bim-ui_accent-base: #ef4444; flex: 0;" 
+                            @click=${() => onUnloadModel(model)} 
+                            tooltip-title="Удалить модель"
+                          ></bim-button>
+                        </div>
+                      </div>
+                      
+                      <div style="display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.2rem; border-top: 1px dashed var(--bim-ui_bg-contrast-20); padding-top: 0.3rem;">
+                        <div style="font-size: 0.72rem; color: var(--bim-ui_bg-contrast-60); font-weight: bold;">Смещение всей подложки:</div>
+                        <div style="display: flex; gap: 0.3rem; flex-wrap: wrap;">
+                          <div style="display: flex; align-items: center; gap: 0.15rem;">
+                            <span style="font-size: 0.72rem; color: #ef4444; font-weight: bold;">X:</span>
+                            <bim-number-input suffix=" мм" .value=${posX} @change=${(e: any) => onTransformChange("x", e.target.value ?? 0)} style="width: 4.8rem;"></bim-number-input>
+                          </div>
+                          <div style="display: flex; align-items: center; gap: 0.15rem;">
+                            <span style="font-size: 0.72rem; color: #4ade80; font-weight: bold;">Y:</span>
+                            <bim-number-input suffix=" мм" .value=${posY} @change=${(e: any) => onTransformChange("y", e.target.value ?? 0)} style="width: 4.8rem;"></bim-number-input>
+                          </div>
+                          <div style="display: flex; align-items: center; gap: 0.15rem;">
+                            <span style="font-size: 0.72rem; color: #60a5fa; font-weight: bold;">Z:</span>
+                            <bim-number-input suffix=" мм" .value=${posZ} @change=${(e: any) => onTransformChange("z", e.target.value ?? 0)} style="width: 4.8rem;"></bim-number-input>
+                          </div>
+                          <div style="display: flex; align-items: center; gap: 0.15rem;">
+                            <span style="font-size: 0.72rem; color: #fbbf24; font-weight: bold;">R°:</span>
+                            <bim-number-input suffix="°" .value=${rotY} @change=${(e: any) => onTransformChange("rot", e.target.value ?? 0)} style="width: 3.5rem;"></bim-number-input>
+                          </div>
+                        </div>
+                        <bim-button label="Сбросить положение" icon="mdi:refresh" @click=${onResetTransform} style="margin-top: 0.1rem; --bim-ui_accent-base: #888888; font-size: 0.72rem; height: 1.5rem;"></bim-button>
+                      </div>
+                    </div>
+                  `;
+                })}
               </div>
             </div>
           </bim-tab>
