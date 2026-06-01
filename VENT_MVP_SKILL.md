@@ -193,6 +193,25 @@ vent_mvp.db                       # SQLite БД (в корне)
 надо завести в `renderAll` (отрисовка), `elements-data.ts` (свойства),
 `BOMCalculator`/`specification.ts` (спецификация) и при необходимости в `FittingGenerator`.
 
+### 5.6 Системы (SystemManager) — авто-формирование по связности
+Над `system` (строка-медиум: «Подача»/«Обратка»/«Приточный») есть НАДстройка — **система-
+экземпляр** (ОВ1, ОВ2…), поле `systemId` у элементов. Считает `bim-components/SystemManager`:
+- **Связность** (union-find): элементы в одной системе, если делят координаты (концы труб ↔
+  порты приборов ↔ узлы фитингов; округление 10 мм) ИЛИ через явные связи (`fitting.connects`,
+  `host` у `terminal`/`*_accessory`). Порты приборов — таблица `PORT_LOCALS` (синхрон с
+  `TwoPipeDrawingTool.getEquipmentPorts`).
+- **Правило:** компонент = система ТОЛЬКО если есть И трасса (`pipe`/`duct`/`tray`), И прибор
+  (`radiator`/`ac`/`ac_ceiling`/`equipment`/`terminal`). Иначе `systemId` не ставится.
+- **Нумерация:** отопление+вентиляция+кондиционирование = единый раздел, префикс **«ОВ»**,
+  СКВОЗНОЙ счётчик (ОВ1, ОВ2, ОВ3…), по порядку (стабильная сортировка по min id). Электрика
+  (лотки) → «ЭО». Тип (heating/ventilation/conditioning) — для подписи, не для префикса.
+- **Где живёт:** `SystemManager.rebuild(projectElements)` вызывается в `main.ts` на
+  `elements-updated`, кладёт реестр в `window.__projectSystems`, шлёт `systems-updated`.
+  Вкладка «Системы» (`sections/systems.ts`, нижний блок) читает реестр; ручные имена —
+  `window.__systemCustomNames[systemId]`.
+- **TODO (в ТЗ §20):** FR-SYS-3 схема-аксонометрия (кнопка «Схема» шлёт `system-isolate`,
+  обработчика пока нет), FR-SYS-4 полировка флоу подключения.
+
 ---
 
 ## 6. Система координат и единицы — НЕ ПЕРЕПУТАЙ

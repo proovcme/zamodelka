@@ -21,6 +21,8 @@ export const colorNameToHex: Record<string, number> = {
   "зеленый": 0x10b981,     // зеленый
   "коричневый": 0x7c2d12,   // коричневый
   "черный": 0x18181b,      // черный
+  "оранжевый": 0xf97316,   // оранжевый
+  "бирюзовый": 0x06b6d4,   // бирюзовый
 };
 
 export class DuctDrawingTool extends BaseLineTool {
@@ -38,10 +40,12 @@ export class DuctDrawingTool extends BaseLineTool {
   ductsGroup = new THREE.Group();
   
   // Хранилище сгенерированных мешей для быстрого управления
-  renderedDucts = new Map<string, THREE.Mesh>();
+  renderedDucts = new Map<string, THREE.Object3D>();
 
   constructor(components: OBC.Components, world: OBC.World) {
     super(components, world);
+    this.enableWallSnapping = true;
+    this.wallFaceOffset = 100; // 100 мм от грани стены по умолчанию
     
     // Добавляем группу в 3D сцену
     this.world.scene.three.add(this.ductsGroup);
@@ -547,6 +551,7 @@ export class DuctDrawingTool extends BaseLineTool {
         const bluePortMesh = new THREE.Mesh(bluePortGeom, bluePortMat);
         bluePortMesh.position.set(-0.6, 0, 0);
         bluePortMesh.rotation.z = Math.PI / 2;
+        bluePortMesh.userData = { elementId: elem.id, portType: "return" };
         eqGroup.add(bluePortMesh);
         
         const redPortGeom = new THREE.CylinderGeometry(0.18, 0.18, 0.05, 16);
@@ -554,6 +559,7 @@ export class DuctDrawingTool extends BaseLineTool {
         const redPortMesh = new THREE.Mesh(redPortGeom, redPortMat);
         redPortMesh.position.set(0.6, 0, 0);
         redPortMesh.rotation.z = Math.PI / 2;
+        redPortMesh.userData = { elementId: elem.id, portType: "supply" };
         eqGroup.add(redPortMesh);
         
         eqGroup.rotation.y = (elem.rotation * Math.PI) / 180;
@@ -727,6 +733,21 @@ export class DuctDrawingTool extends BaseLineTool {
         stripMesh.position.set(0.11, -0.08, 0);
         acGroup.add(stripMesh);
         
+        // Добавляем порты подачи/обратки
+        const portGeom = new THREE.SphereGeometry(0.035, 16, 16);
+        const redPortMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.1, metalness: 0.9, emissive: 0x3d0000 });
+        const bluePortMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.1, metalness: 0.9, emissive: 0x00003d });
+        
+        const supplyPort = new THREE.Mesh(portGeom, redPortMat);
+        supplyPort.position.set(0.11, -0.1, 0.15);
+        supplyPort.userData = { elementId: elem.id, portType: "supply" };
+        acGroup.add(supplyPort);
+        
+        const returnPort = new THREE.Mesh(portGeom, bluePortMat);
+        returnPort.position.set(0.11, -0.1, 0.2);
+        returnPort.userData = { elementId: elem.id, portType: "return" };
+        acGroup.add(returnPort);
+        
         if (elem.normal) {
           const norm = new THREE.Vector3(elem.normal[0], elem.normal[1], elem.normal[2]);
           acGroup.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), norm);
@@ -768,6 +789,21 @@ export class DuctDrawingTool extends BaseLineTool {
           radGroup.add(secMesh);
           secMesh.userData = { elementId: elem.id };
         }
+        
+        // Добавляем порты подачи/обратки для автодока
+        const portGeom = new THREE.SphereGeometry(0.035, 16, 16);
+        const redPortMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.1, metalness: 0.9, emissive: 0x3d0000 });
+        const bluePortMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.1, metalness: 0.9, emissive: 0x00003d });
+        
+        const supplyPort = new THREE.Mesh(portGeom, redPortMat);
+        supplyPort.position.set(0.05, -0.25, 0.31);
+        supplyPort.userData = { elementId: elem.id, portType: "supply" };
+        radGroup.add(supplyPort);
+        
+        const returnPort = new THREE.Mesh(portGeom, bluePortMat);
+        returnPort.position.set(0.05, -0.25, 0.36);
+        returnPort.userData = { elementId: elem.id, portType: "return" };
+        radGroup.add(returnPort);
         
         if (elem.normal) {
           const norm = new THREE.Vector3(elem.normal[0], elem.normal[1], elem.normal[2]);
@@ -830,6 +866,21 @@ export class DuctDrawingTool extends BaseLineTool {
         slot4.position.set(-0.3, -0.0101, 0);
         acCeilingGroup.add(slot4);
         slot4.userData = { elementId: elem.id };
+        
+        // Добавляем порты подачи/обратки для автодока
+        const portGeom = new THREE.SphereGeometry(0.035, 16, 16);
+        const redPortMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.1, metalness: 0.9, emissive: 0x3d0000 });
+        const bluePortMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.1, metalness: 0.9, emissive: 0x00003d });
+        
+        const supplyPort = new THREE.Mesh(portGeom, redPortMat);
+        supplyPort.position.set(0.37, 0.15, -0.05);
+        supplyPort.userData = { elementId: elem.id, portType: "supply" };
+        acCeilingGroup.add(supplyPort);
+        
+        const returnPort = new THREE.Mesh(portGeom, bluePortMat);
+        returnPort.position.set(0.37, 0.15, 0.05);
+        returnPort.userData = { elementId: elem.id, portType: "return" };
+        acCeilingGroup.add(returnPort);
         
         acCeilingGroup.rotation.y = (elem.rotation * Math.PI) / 180;
         
@@ -1062,6 +1113,205 @@ export class DuctDrawingTool extends BaseLineTool {
         columnGroup.rotation.y = (elem.rotation * Math.PI) / 180;
         
         this.ductsGroup.add(columnGroup);
+      }
+      else if (elem.type === "duct_accessory") {
+        const host = elements.find((e: any) => e.id === elem.host && e.type === "duct");
+        if (host) {
+          const pos = new THREE.Vector3(elem.position[0] / 1000, elem.position[1] / 1000, elem.position[2] / 1000);
+          
+          const pStart = new THREE.Vector3(host.start[0] / 1000, host.start[1] / 1000, host.start[2] / 1000);
+          const pEnd = new THREE.Vector3(host.end[0] / 1000, host.end[1] / 1000, host.end[2] / 1000);
+          const dir = new THREE.Vector3().subVectors(pEnd, pStart).normalize();
+          
+          const len = (elem.length || 150) / 1000;
+          const w = (elem.size.w || 200) / 1000;
+          const h = (elem.size.h || 200) / 1000;
+          const d = (elem.size.d || 200) / 1000;
+          
+          const isRect = host.shape === "rectangular";
+          
+          const accGroup = new THREE.Group();
+          accGroup.position.copy(pos);
+          accGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+          
+          // Цветовые константы
+          const greyMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.3, metalness: 0.8 }); // Оцинковка
+          const redMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.4, metalness: 0.6 }); // Пожарный клапан
+          const blackMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 }); // Черный пластик/заслонка
+          const yellowMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.3 }); // Маховик/ручка
+          
+          if (elem.kind === "silencer") {
+            // Шумоглушитель
+            let bodyMesh;
+            if (isRect) {
+              bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(w * 1.15, h * 1.15, len), greyMat);
+            } else {
+              bodyMesh = new THREE.Mesh(new THREE.CylinderGeometry(d * 0.6, d * 0.6, len, 16), greyMat);
+              bodyMesh.geometry.rotateX(Math.PI / 2);
+            }
+            bodyMesh.userData = { elementId: elem.id };
+            accGroup.add(bodyMesh);
+            
+            // Нанесем декоративные перфорированные полосы (шаг премиальности)
+            const stripeMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6 });
+            if (isRect) {
+              const stripe = new THREE.Mesh(new THREE.BoxGeometry(w * 1.17, h * 1.17, 0.05), stripeMat);
+              stripe.userData = { elementId: elem.id };
+              accGroup.add(stripe);
+            } else {
+              const stripe = new THREE.Mesh(new THREE.CylinderGeometry(d * 0.61, d * 0.61, 0.05, 16), stripeMat);
+              stripe.geometry.rotateX(Math.PI / 2);
+              stripe.userData = { elementId: elem.id };
+              accGroup.add(stripe);
+            }
+          } else if (elem.kind === "fire_damper") {
+            // Пожарный клапан
+            let bodyMesh;
+            if (isRect) {
+              bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(w * 1.05, h * 1.05, len), redMat);
+            } else {
+              bodyMesh = new THREE.Mesh(new THREE.CylinderGeometry(d / 2 * 1.05, d / 2 * 1.05, len, 16), redMat);
+              bodyMesh.geometry.rotateX(Math.PI / 2);
+            }
+            bodyMesh.userData = { elementId: elem.id };
+            accGroup.add(bodyMesh);
+            
+            // Фланцы на концах
+            const flangeMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.3, metalness: 0.8 });
+            if (isRect) {
+              const flangeA = new THREE.Mesh(new THREE.BoxGeometry(w * 1.15, h * 1.15, 0.02), flangeMat);
+              flangeA.position.set(0, 0, len / 2);
+              flangeA.userData = { elementId: elem.id };
+              accGroup.add(flangeA);
+              
+              const flangeB = new THREE.Mesh(new THREE.BoxGeometry(w * 1.15, h * 1.15, 0.02), flangeMat);
+              flangeB.position.set(0, 0, -len / 2);
+              flangeB.userData = { elementId: elem.id };
+              accGroup.add(flangeB);
+            } else {
+              const flangeA = new THREE.Mesh(new THREE.CylinderGeometry(d * 0.58, d * 0.58, 0.02, 16), flangeMat);
+              flangeA.geometry.rotateX(Math.PI / 2);
+              flangeA.position.set(0, 0, len / 2);
+              flangeA.userData = { elementId: elem.id };
+              accGroup.add(flangeA);
+              
+              const flangeB = new THREE.Mesh(new THREE.CylinderGeometry(d * 0.58, d * 0.58, 0.02, 16), flangeMat);
+              flangeB.geometry.rotateX(Math.PI / 2);
+              flangeB.position.set(0, 0, -len / 2);
+              flangeB.userData = { elementId: elem.id };
+              accGroup.add(flangeB);
+            }
+          } else {
+            // Дроссель-клапан (throttle)
+            let bodyMesh;
+            if (isRect) {
+              bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, len), greyMat);
+            } else {
+              bodyMesh = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d / 2, len, 16), greyMat);
+              bodyMesh.geometry.rotateX(Math.PI / 2);
+            }
+            bodyMesh.userData = { elementId: elem.id };
+            accGroup.add(bodyMesh);
+            
+            // Рукоятка
+            const handle = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.12, 0.015), blackMat);
+            handle.position.set(0, (isRect ? h / 2 : d / 2) + 0.06, 0);
+            handle.userData = { elementId: elem.id };
+            accGroup.add(handle);
+            
+            const handleKnob = new THREE.Mesh(new THREE.SphereGeometry(0.015, 8, 8), yellowMat);
+            handleKnob.position.set(0, (isRect ? h / 2 : d / 2) + 0.12, 0);
+            handleKnob.userData = { elementId: elem.id };
+            accGroup.add(handleKnob);
+          }
+          
+          this.ductsGroup.add(accGroup);
+          this.renderedDucts.set(elem.id, accGroup);
+        }
+      }
+      else if (elem.type === "pipe_accessory") {
+        const host = elements.find((e: any) => e.id === elem.host && e.type === "pipe");
+        if (host) {
+          const pos = new THREE.Vector3(elem.position[0] / 1000, elem.position[1] / 1000, elem.position[2] / 1000);
+          
+          const pStart = new THREE.Vector3(host.start[0] / 1000, host.start[1] / 1000, host.start[2] / 1000);
+          const pEnd = new THREE.Vector3(host.end[0] / 1000, host.end[1] / 1000, host.end[2] / 1000);
+          const dir = new THREE.Vector3().subVectors(pEnd, pStart).normalize();
+          
+          const len = (elem.length || 120) / 1000;
+          const d = (elem.size.d || 25) / 1000;
+          
+          const accGroup = new THREE.Group();
+          accGroup.position.copy(pos);
+          accGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+          
+          const brassMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.2, metalness: 0.8 }); // Латунь
+          const redMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.3 }); // Красная ручка
+          const blackMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 }); // Маховик
+          
+          if (elem.kind === "ball_valve") {
+            // Кран шаровой
+            const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(d * 1.5, 16, 16), brassMat);
+            bodyMesh.userData = { elementId: elem.id };
+            accGroup.add(bodyMesh);
+            
+            // Концевые патрубки
+            const pipeA = new THREE.Mesh(new THREE.CylinderGeometry(d * 0.9, d * 0.9, len, 12), brassMat);
+            pipeA.geometry.rotateX(Math.PI / 2);
+            pipeA.userData = { elementId: elem.id };
+            accGroup.add(pipeA);
+            
+            // Рукоятка
+            const handleStem = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.03, 8), brassMat);
+            handleStem.position.set(0, d * 1.5 + 0.015, 0);
+            handleStem.userData = { elementId: elem.id };
+            accGroup.add(handleStem);
+            
+            const handleLever = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.012, len * 0.9), redMat);
+            handleLever.position.set(0, d * 1.5 + 0.03, len * 0.25);
+            handleLever.userData = { elementId: elem.id };
+            accGroup.add(handleLever);
+          } else if (elem.kind === "balancing") {
+            // Балансировочник
+            const bodyMesh = new THREE.Mesh(new THREE.CylinderGeometry(d * 1.1, d * 1.1, len, 12), brassMat);
+            bodyMesh.geometry.rotateX(Math.PI / 2);
+            bodyMesh.userData = { elementId: elem.id };
+            accGroup.add(bodyMesh);
+            
+            const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.05, 8), brassMat);
+            stem.position.set(0, d * 1.1 + 0.025, 0);
+            stem.userData = { elementId: elem.id };
+            accGroup.add(stem);
+            
+            const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.015, 12), blackMat);
+            wheel.geometry.rotateX(Math.PI / 2);
+            wheel.position.set(0, d * 1.1 + 0.05, 0);
+            wheel.userData = { elementId: elem.id };
+            accGroup.add(wheel);
+          } else {
+            // Фильтр косой (filter)
+            const bodyMesh = new THREE.Mesh(new THREE.CylinderGeometry(d * 0.95, d * 0.95, len, 12), brassMat);
+            bodyMesh.geometry.rotateX(Math.PI / 2);
+            bodyMesh.userData = { elementId: elem.id };
+            accGroup.add(bodyMesh);
+            
+            // Грязевик под наклоном 45 град
+            const filterChamber = new THREE.Mesh(new THREE.CylinderGeometry(d * 0.9, d * 0.9, len * 0.6, 12), brassMat);
+            filterChamber.rotation.x = Math.PI / 4;
+            filterChamber.position.set(0, -len * 0.2, -len * 0.1);
+            filterChamber.userData = { elementId: elem.id };
+            accGroup.add(filterChamber);
+            
+            const cap = new THREE.Mesh(new THREE.CylinderGeometry(d * 1.0, d * 1.0, 0.01, 12), brassMat);
+            cap.rotation.x = Math.PI / 4;
+            cap.position.set(0, -len * 0.4, -len * 0.3);
+            cap.userData = { elementId: elem.id };
+            accGroup.add(cap);
+          }
+          
+          this.ductsGroup.add(accGroup);
+          this.renderedDucts.set(elem.id, accGroup);
+        }
       }
     }
   }

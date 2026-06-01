@@ -31,6 +31,8 @@ export class TrayDrawingTool extends BaseLineTool {
 
   constructor(components: OBC.Components, world: OBC.World) {
     super(components, world);
+    this.enableWallSnapping = true;
+    this.wallFaceOffset = 100; // 100 мм от грани стены по умолчанию
   }
 
   protected updatePreview(start: THREE.Vector3, end: THREE.Vector3, isInvalidAngle: boolean) {

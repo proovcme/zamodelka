@@ -24,11 +24,15 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
     window.removeEventListener("custom-element-selected", (window as any)[listenerName]);
     window.removeEventListener("project-systems-updated", (window as any)[listenerName]);
     window.removeEventListener("project-levels-updated", (window as any)[listenerName]);
+    window.removeEventListener("radiator-connect-started", (window as any)[listenerName]);
+    window.removeEventListener("radiator-connect-cancelled", (window as any)[listenerName]);
   }
   (window as any)[listenerName] = () => update();
   window.addEventListener("custom-element-selected", (window as any)[listenerName]);
   window.addEventListener("project-systems-updated", (window as any)[listenerName]);
   window.addEventListener("project-levels-updated", (window as any)[listenerName]);
+  window.addEventListener("radiator-connect-started", (window as any)[listenerName]);
+  window.addEventListener("radiator-connect-cancelled", (window as any)[listenerName]);
 
   const [propsTable, updatePropsTable] = CUI.tables.itemsData({
     components,
@@ -69,7 +73,6 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
     propsTable.expanded = !propsTable.expanded;
   };
 
-  // Инициализация глобального реестра цветов, если он еще не существует
   if (!(window as any).systemColorSettings) {
     (window as any).systemColorSettings = {
       // Вентиляция
@@ -82,6 +85,11 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
       "ХВС": "синий",
       "ГВС": "красный",
       "Канализация": "коричневый",
+      // Двухтрубная система
+      "Подача": "красный",
+      "Обратка": "синий",
+      "Подача_Холод": "оранжевый",
+      "Обратка_Холод": "бирюзовый",
     };
   }
 
@@ -367,6 +375,9 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
     }
     else if (selectedElement.type === "radiator") {
       addProp("Модель", selectedElement.model);
+      if (selectedElement.connectionNodeType === "radiator_lower") {
+        addProp("Подключение", "Нижнее");
+      }
       if (selectedElement.position) {
         addProp("Высота установки", `${Math.round(selectedElement.position[1])} мм`);
         addProp("Координаты", `${Math.round(selectedElement.position[0])}, ${Math.round(selectedElement.position[1])}, ${Math.round(selectedElement.position[2])}`);
@@ -452,6 +463,15 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
       (window as any).terminalPlacementTool?.activateConnectionMode(selectedElement);
     };
 
+    const onConnectRadiator = () => {
+      if (!selectedElement) return;
+      const highlighter = components.get(OBF.Highlighter);
+      highlighter.clear("select");
+      window.dispatchEvent(new CustomEvent("radiator-connect-start", {
+        detail: { radiator: selectedElement },
+      }));
+    };
+
     bodyContent = BUI.html`
       <div style="display: flex; flex-direction: column; gap: 0.8rem; width: 100%; max-height: 100%; overflow: auto; padding-bottom: 0.5rem;">
         <div style="display: flex; justify-content: flex-end; margin-top: -0.25rem;">
@@ -471,6 +491,14 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
             icon="mdi:vector-line" 
             style="--bim-ui_accent-base: #3b82f6; margin-top: 0.5rem;" 
             @click=${onConnect}>
+          </bim-button>
+        ` : ""}
+        ${selectedElement.type === "radiator" ? BUI.html`
+          <bim-button
+            label="Подключить к трубам"
+            icon="mdi:vector-difference"
+            style="--bim-ui_accent-base: #3b82f6; margin-top: 0.5rem;"
+            @click=${onConnectRadiator}>
           </bim-button>
         ` : ""}
         <bim-button 

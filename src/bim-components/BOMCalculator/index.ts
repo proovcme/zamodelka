@@ -100,6 +100,20 @@ export interface BOMRadiatorGroup {
   quantity: number;
 }
 
+export interface BOMDuctAccessoryGroup {
+  name: string;
+  kind: "throttle" | "silencer" | "fire_damper";
+  sizeLabel: string;
+  quantity: number;
+}
+
+export interface BOMPipeAccessoryGroup {
+  name: string;
+  kind: "ball_valve" | "balancing" | "filter";
+  sizeLabel: string;
+  quantity: number;
+}
+
 export interface BOMResult {
   ducts: BOMDuctGroup[];
   fittings: BOMFittingGroup[];
@@ -115,6 +129,8 @@ export interface BOMResult {
   windows: BOMWindowGroup[];
   acs: BOMACGroup[];
   radiators: BOMRadiatorGroup[];
+  ductAccessories: BOMDuctAccessoryGroup[];
+  pipeAccessories: BOMPipeAccessoryGroup[];
 }
 
 export class BOMCalculator {
@@ -148,6 +164,8 @@ export class BOMCalculator {
     const windowsMap = new Map<string, BOMWindowGroup>();
     const acsMap = new Map<string, BOMACGroup>();
     const radiatorsMap = new Map<string, BOMRadiatorGroup>();
+    const ductAccessoriesMap = new Map<string, BOMDuctAccessoryGroup>();
+    const pipeAccessoriesMap = new Map<string, BOMPipeAccessoryGroup>();
 
     for (const elem of elements) {
       if (elem.type === "duct") {
@@ -456,6 +474,50 @@ export class BOMCalculator {
           });
         }
       }
+      else if (elem.type === "duct_accessory") {
+        const kind = elem.kind || "throttle";
+        const size = elem.size || {};
+        let sizeLabel = "";
+        if ("w" in size && "h" in size) {
+          sizeLabel = `${size.w}x${size.h} мм`;
+        } else if ("d" in size) {
+          sizeLabel = `⌀${size.d} мм`;
+        } else {
+          sizeLabel = "универсальный";
+        }
+        
+        const name = kind === "throttle" ? "Дроссель-клапан регулирующий" : (kind === "silencer" ? "Шумоглушитель пластинчатый" : "Клапан противопожарный");
+        const key = `${kind}-${sizeLabel}`;
+        if (ductAccessoriesMap.has(key)) {
+          ductAccessoriesMap.get(key)!.quantity += 1;
+        } else {
+          ductAccessoriesMap.set(key, {
+            name,
+            kind,
+            sizeLabel,
+            quantity: 1
+          });
+        }
+      }
+      else if (elem.type === "pipe_accessory") {
+        const kind = elem.kind || "ball_valve";
+        const size = elem.size || {};
+        const d = size.d || 25;
+        const sizeLabel = `DN${d}`;
+        
+        const name = kind === "ball_valve" ? "Кран шаровой латунный" : (kind === "balancing" ? "Клапан балансировочный ручной" : "Фильтр сетчатый косой");
+        const key = `${kind}-${sizeLabel}`;
+        if (pipeAccessoriesMap.has(key)) {
+          pipeAccessoriesMap.get(key)!.quantity += 1;
+        } else {
+          pipeAccessoriesMap.set(key, {
+            name,
+            kind,
+            sizeLabel,
+            quantity: 1
+          });
+        }
+      }
     }
 
     return {
@@ -473,6 +535,8 @@ export class BOMCalculator {
       windows: Array.from(windowsMap.values()),
       acs: Array.from(acsMap.values()),
       radiators: Array.from(radiatorsMap.values()),
+      ductAccessories: Array.from(ductAccessoriesMap.values()),
+      pipeAccessories: Array.from(pipeAccessoriesMap.values()),
     };
   }
 }

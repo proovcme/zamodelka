@@ -110,7 +110,7 @@ bim-panel-section > bim-table {
   border-radius: 0.25rem;
 }
 
-bim-grid[floating] > bim-toolbar {
+bim-grid[floating] bim-toolbar {
   border: none;
   justify-self: center;
   outline: 1px solid var(--bim-ui_bg-contrast-40);
@@ -118,20 +118,20 @@ bim-grid[floating] > bim-toolbar {
   overflow-x: auto;
 }
 
-bim-grid[floating] > bim-toolbar::-webkit-scrollbar {
+bim-grid[floating] bim-toolbar::-webkit-scrollbar {
   height: 4px;
 }
 
-bim-grid[floating] > bim-toolbar::-webkit-scrollbar-track {
+bim-grid[floating] bim-toolbar::-webkit-scrollbar-track {
   background: var(--bim-ui_bg-base);
 }
 
-bim-grid[floating] > bim-toolbar::-webkit-scrollbar-thumb {
+bim-grid[floating] bim-toolbar::-webkit-scrollbar-thumb {
   background: var(--bim-ui_bg-contrast-40);
   border-radius: 2px;
 }
 
-bim-grid[floating] > bim-toolbar::-webkit-scrollbar-thumb:hover {
+bim-grid[floating] bim-toolbar::-webkit-scrollbar-thumb:hover {
   background: var(--bim-ui_accent-base);
 }
 

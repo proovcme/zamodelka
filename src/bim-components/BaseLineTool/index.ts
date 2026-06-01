@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import * as OBC from "@thatopen/components";
 import { Snapping, SnappingSettings } from "../Snapping";
-import { SmartSnap } from "../SmartSnap";
+import { SmartSnap, SnapGuide } from "../SmartSnap";
 
 
 export abstract class BaseLineTool {
@@ -47,10 +47,22 @@ export abstract class BaseLineTool {
   protected raycaster = new THREE.Raycaster();
 
   private smartSnap = new SmartSnap();
+  protected enableWallSnapping = false;
+  protected wallFaceOffset = 100; // в мм от грани стены
+  private snapContext: {
+    wallSnapped: boolean;
+    guideAxes: SnapGuide["axis"][];
+    isIfcSnapped: boolean;
+  } = {
+    wallSnapped: false,
+    guideAxes: [],
+    isIfcSnapped: false,
+  };
 
 
   // CAD подсказка у курсора
   private cadTooltip: HTMLDivElement | null = null;
+  private lastCameraFollowAt = 0;
 
   constructor(components: OBC.Components, world: OBC.World) {
     this.components = components;
@@ -155,6 +167,95 @@ export abstract class BaseLineTool {
     this.snappingSettings = { ...this.snappingSettings, ...settings };
   }
 
+  private smartCameraFrameCurrentElement(from: THREE.Vector3, to: THREE.Vector3, immediate = false) {
+    if ((window as any).__smartCameraEnabled === false) return;
+    const controls = this.world.camera?.controls;
+    const camera = this.world.camera?.three as THREE.Camera | undefined;
+    const dom = this.world.renderer?.three.domElement;
+    if (!controls || !camera || !dom) return;
+
+    const now = performance.now();
+    if (!immediate && now - this.lastCameraFollowAt < 450) return;
+    this.lastCameraFollowAt = now;
+
+    try {
+      const box = new THREE.Box3().setFromPoints([from, to]);
+      const size = box.getSize(new THREE.Vector3());
+      const longestSide = Math.max(size.x, size.y, size.z);
+      const padding = Math.max(longestSide * 0.15, 0.3);
+      box.expandByScalar(padding);
+
+      const center = box.getCenter(new THREE.Vector3());
+      const currentPosition = controls.getPosition
+        ? controls.getPosition(new THREE.Vector3(), true)
+        : camera.position.clone();
+      const currentTarget = controls.getTarget
+        ? controls.getTarget(new THREE.Vector3(), true)
+        : new THREE.Vector3();
+      const viewDir = currentPosition.clone().sub(currentTarget);
+      const currentDistance = Math.max(viewDir.length(), 0.001);
+      viewDir.normalize();
+
+      const viewWidth = Math.max(dom.clientWidth, 1);
+      const viewHeight = Math.max(dom.clientHeight, 1);
+      const aspect = viewWidth / viewHeight;
+      const corners = [
+        new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+        new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+        new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+        new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+        new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+        new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+        new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+        new THREE.Vector3(box.max.x, box.max.y, box.max.z),
+      ];
+
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (const corner of corners) {
+        const rel = corner.clone().sub(center);
+        const x = rel.dot(right);
+        const y = rel.dot(up);
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+
+      const requiredWidth = Math.max(maxX - minX, 0.5) * 1.3;
+      const requiredHeight = Math.max(maxY - minY, 0.5) * 1.3;
+
+      if ((camera as THREE.OrthographicCamera).isOrthographicCamera) {
+        const ortho = camera as THREE.OrthographicCamera;
+        const baseWidth = Math.max(ortho.right - ortho.left, 0.001);
+        const baseHeight = Math.max(ortho.top - ortho.bottom, 0.001);
+        const targetZoom = Math.min(baseWidth / requiredWidth, baseHeight / requiredHeight);
+        const nextPosition = center.clone().addScaledVector(viewDir, currentDistance);
+        controls.setLookAt(nextPosition.x, nextPosition.y, nextPosition.z, center.x, center.y, center.z, true);
+        if (controls.zoomTo && Number.isFinite(targetZoom) && targetZoom > 0) {
+          controls.zoomTo(targetZoom, true);
+        }
+      } else {
+        const perspective = camera as THREE.PerspectiveCamera;
+        const verticalFov = THREE.MathUtils.degToRad(perspective.fov || 50);
+        const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
+        const targetDistance = Math.max(
+          requiredHeight / (2 * Math.tan(verticalFov / 2)),
+          requiredWidth / (2 * Math.tan(horizontalFov / 2)),
+          1
+        );
+        const nextPosition = center.clone().addScaledVector(viewDir, targetDistance);
+        controls.setLookAt(nextPosition.x, nextPosition.y, nextPosition.z, center.x, center.y, center.z, true);
+      }
+    } catch (err) {
+      console.warn("Smart camera follow failed:", err);
+    }
+  }
+
   protected handleMouseMove = (event: MouseEvent) => {
     if (!this.enabled || this.currentStep === "idle") return;
 
@@ -196,6 +297,8 @@ export abstract class BaseLineTool {
       const intersection = this.getMouseIntersection(event);
       if (!intersection) {
         if (this.snapIndicator) this.snapIndicator.visible = false;
+        this.smartSnap.clearGuides(this.world.scene.three);
+        this.snapContext = { wallSnapped: false, guideAxes: [], isIfcSnapped: false };
         this.hideCadTooltip();
         return;
       }
@@ -211,13 +314,19 @@ export abstract class BaseLineTool {
     this.lastMouseX = event.clientX;
     this.lastMouseY = event.clientY;
 
-    // 1b. Smart alignment snapping (Miro/Visio style)
-    const { snapped: smartSnapped, guides } = this.smartSnap.snap(
+    // 1b. Smart alignment snapping (Miro/Visio style) + Wall parallel snapping
+    const { snapped: smartSnapped, guides, wallSnapped } = this.smartSnap.snap(
       snappedPoint,
-      this.projectElements
+      this.projectElements,
+      { faceOffset: this.enableWallSnapping ? this.wallFaceOffset : undefined }
     );
     snappedPoint = smartSnapped;
     this.smartSnap.renderGuides(guides, this.world.scene.three);
+    this.snapContext = {
+      wallSnapped,
+      guideAxes: guides.map((guide) => guide.axis),
+      isIfcSnapped,
+    };
 
     this.lastSnappedMousePoint.copy(snappedPoint);
 
@@ -365,10 +474,12 @@ export abstract class BaseLineTool {
       }
 
       // Сохраняем сегмент (реализуется наследником)
+      const prevPoint = this.startPoint.clone();
       this.saveSegment(this.startPoint, snappedPoint);
 
       this.lastSegmentDir = newDir;
       this.startPoint = snappedPoint.clone();
+      this.smartCameraFrameCurrentElement(prevPoint, this.startPoint);
       this.removePreview();
     }
   };
@@ -506,10 +617,12 @@ export abstract class BaseLineTool {
           const targetPoint = this.startPoint.clone().addScaledVector(dir, lengthM);
 
           // Сохраняем сегмент
+          const prevPoint = this.startPoint.clone();
           this.saveSegment(this.startPoint, targetPoint);
 
           this.lastSegmentDir = dir;
           this.startPoint = targetPoint.clone();
+          this.smartCameraFrameCurrentElement(prevPoint, this.startPoint);
           this.removePreview();
           this.hideCadTooltip();
           
@@ -537,9 +650,11 @@ export abstract class BaseLineTool {
           targetPoint.y = parsedElevation / 1000;
 
           // Сохраняем сегмент
+          const prevPoint = this.startPoint.clone();
           this.saveSegment(this.startPoint, targetPoint);
 
           this.startPoint = targetPoint.clone();
+          this.smartCameraFrameCurrentElement(prevPoint, this.startPoint, true);
           this.removePreview();
           this.hideCadTooltip();
 
@@ -583,10 +698,10 @@ export abstract class BaseLineTool {
     this.cadTooltip = document.createElement("div");
     this.cadTooltip.id = "baseline-tool-cad-tooltip";
     this.cadTooltip.style.position = "absolute";
-    this.cadTooltip.style.background = "rgba(15, 23, 42, 0.9)";
-    this.cadTooltip.style.border = "1px solid rgba(148, 163, 184, 0.4)";
-    this.cadTooltip.style.borderRadius = "4px";
-    this.cadTooltip.style.padding = "4px 8px";
+    this.cadTooltip.style.background = "rgba(15, 23, 42, 0.92)";
+    this.cadTooltip.style.border = "1px solid rgba(148, 163, 184, 0.34)";
+    this.cadTooltip.style.borderRadius = "8px";
+    this.cadTooltip.style.padding = "7px 9px";
     this.cadTooltip.style.color = "#ffffff";
     this.cadTooltip.style.fontFamily = "system-ui, -apple-system, sans-serif";
     this.cadTooltip.style.fontSize = "11px";
@@ -594,7 +709,9 @@ export abstract class BaseLineTool {
     this.cadTooltip.style.pointerEvents = "none";
     this.cadTooltip.style.zIndex = "9999";
     this.cadTooltip.style.display = "none";
-    this.cadTooltip.style.boxShadow = "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)";
+    this.cadTooltip.style.maxWidth = "260px";
+    this.cadTooltip.style.boxShadow = "0 12px 28px rgba(0,0,0,0.28)";
+    this.cadTooltip.style.backdropFilter = "blur(10px)";
 
     document.body.appendChild(this.cadTooltip);
   }
@@ -639,38 +756,62 @@ export abstract class BaseLineTool {
       if (angleDeg < 0) angleDeg += 360;
     }
 
+    const chipStyle = "display:inline-flex;align-items:center;gap:4px;padding:2px 5px;border-radius:4px;background:rgba(148,163,184,0.12);color:#cbd5e1;white-space:nowrap;";
+    const keyStyle = "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;font-weight:700;color:#e2e8f0;background:rgba(15,23,42,0.9);border:1px solid rgba(148,163,184,0.35);border-radius:3px;padding:1px 4px;";
+    const snapLabel = this.snapContext.wallSnapped
+      ? "Параллельно стене"
+      : this.snapContext.isIfcSnapped
+        ? "IFC поверхность"
+        : this.snapContext.guideAxes.length > 0
+          ? "По направляющей"
+          : "Свободно";
+    const snapColor = this.snapContext.wallSnapped ? "#22d3ee" : this.snapContext.guideAxes.length > 0 ? "#fbbf24" : "#94a3b8";
+
     let tooltipContent = `
-      <div style="display: flex; flex-direction: column; gap: 2px;">
-        <div>Длина: <span style="color: var(--bim-ui_accent-base, #38bdf8); font-weight: bold;">${lengthMm} мм</span></div>
-        <div>Угол: <span style="color: #34d399; font-weight: bold;">${Math.abs(angleDeg)}°</span></div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+          <span style="color:${snapColor};font-weight:700;">${snapLabel}</span>
+          <span style="color:#94a3b8;">${lengthMm} мм</span>
+        </div>
+        <div style="display:flex;gap:8px;color:#cbd5e1;">
+          <span>Угол <b style="color:#34d399;">${Math.abs(angleDeg)}°</b></span>
+          <span>Отм. <b style="color:#38bdf8;">${Math.round(end.y * 1000)} мм</b></span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;">
+          <span style="${chipStyle}"><span style="${keyStyle}">ЛКМ</span> точка</span>
+          <span style="${chipStyle}"><span style="${keyStyle}">цифры</span> длина</span>
+          <span style="${chipStyle}"><span style="${keyStyle}">Tab</span> длина/отметка</span>
+          <span style="${chipStyle}"><span style="${keyStyle}">Alt</span> IFC</span>
+          <span style="${chipStyle}"><span style="${keyStyle}">Esc</span> выход</span>
+        </div>
     `;
 
     if (this.inputMode === "length" && this.lengthInputBuffer) {
       tooltipContent += `
-        <div style="margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 4px; display: flex; flex-direction: column; gap: 2px;">
-          <div style="color: #fbbf24; font-weight: bold;">⌨️ Ввод длины:</div>
-          <div style="font-size: 13px; color: #fbbf24; font-weight: 800; background: rgba(0,0,0,0.4); padding: 2px 4px; border-radius: 2px; text-align: center;">
+        <div style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 5px; display: flex; flex-direction: column; gap: 3px;">
+          <div style="color: #fbbf24; font-weight: bold;">Ввод длины</div>
+          <div style="font-size: 13px; color: #fbbf24; font-weight: 800; background: rgba(0,0,0,0.32); padding: 3px 5px; border-radius: 4px; text-align: center;">
             ${this.lengthInputBuffer} мм
           </div>
-          <div style="font-size: 9px; color: #94a3b8; text-align: center; margin-top: 1px;">[Enter] - построить, [Tab] - ввести отметку, [Esc] - сбросить</div>
+          <div style="font-size: 10px; color: #94a3b8; text-align: center;">Enter построить, Backspace стереть</div>
         </div>
       `;
     } else if (this.inputMode === "elevation") {
       tooltipContent += `
-        <div style="margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 4px; display: flex; flex-direction: column; gap: 2px;">
-          <div style="color: #fbbf24; font-weight: bold;">⌨️ Ввод отметки:</div>
-          <div style="font-size: 13px; color: #fbbf24; font-weight: 800; background: rgba(0,0,0,0.4); padding: 2px 4px; border-radius: 2px; text-align: center;">
+        <div style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 5px; display: flex; flex-direction: column; gap: 3px;">
+          <div style="color: #fbbf24; font-weight: bold;">Ввод отметки</div>
+          <div style="font-size: 13px; color: #fbbf24; font-weight: 800; background: rgba(0,0,0,0.32); padding: 3px 5px; border-radius: 4px; text-align: center;">
             ${this.elevationInputBuffer || "0"} мм
           </div>
-          <div style="font-size: 9px; color: #94a3b8; text-align: center; margin-top: 1px;">[Enter] - применить, [Tab] - ввести длину, [Esc] - сбросить</div>
+          <div style="font-size: 10px; color: #94a3b8; text-align: center;">Enter применить, Tab обратно к длине</div>
         </div>
       `;
     }
 
     if (isInvalidAngle) {
       tooltipContent += `
-        <div style="color: #ef4444; font-weight: bold; margin-top: 2px; border-top: 1px solid rgba(239, 68, 68, 0.3); padding-top: 2px;">
-          ⚠️ Острый угол!
+        <div style="color: #ef4444; font-weight: bold; border-top: 1px solid rgba(239, 68, 68, 0.3); padding-top: 4px;">
+          Острый обратный угол
         </div>
       `;
     }
@@ -679,8 +820,10 @@ export abstract class BaseLineTool {
 
     this.cadTooltip.innerHTML = tooltipContent;
     this.cadTooltip.style.display = "block";
-    this.cadTooltip.style.left = `${event.clientX + 15}px`;
-    this.cadTooltip.style.top = `${event.clientY + 15}px`;
+    const left = Math.min(event.clientX + 16, window.innerWidth - 280);
+    const top = Math.min(event.clientY + 16, window.innerHeight - 180);
+    this.cadTooltip.style.left = `${Math.max(8, left)}px`;
+    this.cadTooltip.style.top = `${Math.max(8, top)}px`;
   }
 
   private hideCadTooltip() {

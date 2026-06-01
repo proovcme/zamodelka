@@ -26,6 +26,8 @@ export class PipeDrawingTool extends BaseLineTool {
 
   constructor(components: OBC.Components, world: OBC.World) {
     super(components, world);
+    this.enableWallSnapping = true;
+    this.wallFaceOffset = 50; // 50 мм от грани стены по умолчанию
   }
 
   protected updatePreview(start: THREE.Vector3, end: THREE.Vector3, isInvalidAngle: boolean) {
@@ -114,13 +116,15 @@ export class PipeDrawingTool extends BaseLineTool {
     let metalness = 0.8;
     
     const sysColorName = (window as any).systemColorSettings?.[this.activeParams.system || "ХВС"];
-    if (sysColorName && (window as any).ductDrawingTool) {
-      const colorMap = (window as any).ductDrawingTool.colorNameToHex || {
+    if (sysColorName) {
+      const colorMap = (window as any).ductDrawingTool?.colorNameToHex || {
         "красный": 0xef4444,
         "синий": 0x3b82f6,
         "зеленый": 0x10b981,
         "коричневый": 0x7c2d12,
-        "черный": 0x18181b
+        "черный": 0x18181b,
+        "оранжевый": 0xf97316,
+        "бирюзовый": 0x06b6d4
       };
       if (colorMap[sysColorName]) {
         color = colorMap[sysColorName];

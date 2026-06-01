@@ -146,6 +146,40 @@ export const specificationPanelTemplate: BUI.StatefullComponent<
     });
   }
 
+  // 2.2 Арматура и автоматика ОВ
+  if (bom.ductAccessories.length > 0) {
+    rows.push(BUI.html`
+      <div style="grid-column: span 4; background-color: var(--bim-ui_bg-contrast-20); font-weight: bold; padding: 0.5rem 0.35rem; font-size: 0.85rem; border-bottom: 1px solid var(--bim-ui_bg-contrast-30); color: var(--bim-ui_accent-base, #4179b5);">
+        2.2 Арматура и автоматика ОВ
+      </div>
+    `);
+    bom.ductAccessories.forEach((acc) => {
+      rows.push(BUI.html`
+        <div style="color: var(--bim-ui_bg-contrast-100); padding: 0.4rem 0.35rem; font-size: 0.8rem; border-bottom: 1px solid var(--bim-ui_bg-contrast-20); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${acc.name}</div>
+        <div style="color: var(--bim-ui_bg-contrast-100); padding: 0.4rem 0.35rem; font-size: 0.8rem; border-bottom: 1px solid var(--bim-ui_bg-contrast-20); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${acc.sizeLabel}</div>
+        <div style="color: var(--bim-ui_bg-contrast-100); padding: 0.4rem 0.35rem; font-size: 0.8rem; border-bottom: 1px solid var(--bim-ui_bg-contrast-20); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${`${acc.quantity} шт`}</div>
+        <div style="color: var(--bim-ui_bg-contrast-100); padding: 0.4rem 0.35rem; font-size: 0.8rem; border-bottom: 1px solid var(--bim-ui_bg-contrast-20); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></div>
+      `);
+    });
+  }
+
+  // 2.3 Арматура ВК
+  if (bom.pipeAccessories.length > 0) {
+    rows.push(BUI.html`
+      <div style="grid-column: span 4; background-color: var(--bim-ui_bg-contrast-20); font-weight: bold; padding: 0.5rem 0.35rem; font-size: 0.85rem; border-bottom: 1px solid var(--bim-ui_bg-contrast-30); color: var(--bim-ui_accent-base, #4179b5);">
+        2.3 Арматура ВК
+      </div>
+    `);
+    bom.pipeAccessories.forEach((acc) => {
+      rows.push(BUI.html`
+        <div style="color: var(--bim-ui_bg-contrast-100); padding: 0.4rem 0.35rem; font-size: 0.8rem; border-bottom: 1px solid var(--bim-ui_bg-contrast-20); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${acc.name}</div>
+        <div style="color: var(--bim-ui_bg-contrast-100); padding: 0.4rem 0.35rem; font-size: 0.8rem; border-bottom: 1px solid var(--bim-ui_bg-contrast-20); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${acc.sizeLabel}</div>
+        <div style="color: var(--bim-ui_bg-contrast-100); padding: 0.4rem 0.35rem; font-size: 0.8rem; border-bottom: 1px solid var(--bim-ui_bg-contrast-20); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${`${acc.quantity} шт`}</div>
+        <div style="color: var(--bim-ui_bg-contrast-100); padding: 0.4rem 0.35rem; font-size: 0.8rem; border-bottom: 1px solid var(--bim-ui_bg-contrast-20); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></div>
+      `);
+    });
+  }
+
   // 3. Оборудование и решетки
   if (bom.equipment.length > 0 || bom.terminals.length > 0 || bom.acs.length > 0 || bom.radiators.length > 0) {
     rows.push(BUI.html`
