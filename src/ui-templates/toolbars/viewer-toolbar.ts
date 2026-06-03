@@ -111,6 +111,7 @@ let selectedTrayRef = "TRAY-200x80";
 let selectedPipeDiameter = 25;        // мм
 let selectedPipeMaterial: "steel_water" | "ppr" = "steel_water";
 let selectedPipeRef = "PIPE-25";
+let selectedTwoPipeSpacing = 150;     // мм
 
 // Состояние черчения воздуховодов
 let selectedDuctSystem = "Приточный";
@@ -251,6 +252,7 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
       selectedPipeRef,
       selectedDuctSystem,
       selectedPipeSystem,
+      selectedTwoPipeSpacing,
     };
   };
 
@@ -303,10 +305,19 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
         selectedPipeDiameter = item.d;
       }
       syncPipeParamsToTool();
+      syncTwoPipeParamsToTool();
     }
-    else if (key === "selectedPipeMaterial") { selectedPipeMaterial = value; syncPipeParamsToTool(); }
+    else if (key === "selectedPipeMaterial") {
+      selectedPipeMaterial = value;
+      syncPipeParamsToTool();
+      syncTwoPipeParamsToTool();
+    }
     else if (key === "selectedPipeSystem") { selectedPipeSystem = value; syncPipeParamsToTool(); }
     else if (key === "selectedDuctSystem") { selectedDuctSystem = value; syncParamsToTool(); }
+    else if (key === "selectedTwoPipeSpacing") {
+      selectedTwoPipeSpacing = value;
+      syncTwoPipeParamsToTool();
+    }
     
     syncGlobalsToWindow();
     update();
@@ -334,6 +345,28 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
   window.addEventListener("radiator-connect-changed", (window as any)[radiatorConnectListenerName]);
   window.addEventListener("radiator-connect-started", (window as any)[radiatorConnectListenerName]);
   window.addEventListener("radiator-connect-cancelled", (window as any)[radiatorConnectListenerName]);
+
+  const terminalConnectFlowListenerName = "__terminalConnectToolbarListener";
+  if ((window as any)[terminalConnectFlowListenerName]) {
+    window.removeEventListener("terminal-connect-changed", (window as any)[terminalConnectFlowListenerName]);
+    window.removeEventListener("terminal-connect-started", (window as any)[terminalConnectFlowListenerName]);
+    window.removeEventListener("terminal-connect-cancelled", (window as any)[terminalConnectFlowListenerName]);
+  }
+  (window as any)[terminalConnectFlowListenerName] = () => update();
+  window.addEventListener("terminal-connect-changed", (window as any)[terminalConnectFlowListenerName]);
+  window.addEventListener("terminal-connect-started", (window as any)[terminalConnectFlowListenerName]);
+  window.addEventListener("terminal-connect-cancelled", (window as any)[terminalConnectFlowListenerName]);
+
+  const acConnectFlowListenerName = "__acConnectToolbarListener";
+  if ((window as any)[acConnectFlowListenerName]) {
+    window.removeEventListener("ac-connect-changed", (window as any)[acConnectFlowListenerName]);
+    window.removeEventListener("ac-connect-started", (window as any)[acConnectFlowListenerName]);
+    window.removeEventListener("ac-connect-cancelled", (window as any)[acConnectFlowListenerName]);
+  }
+  (window as any)[acConnectFlowListenerName] = () => update();
+  window.addEventListener("ac-connect-changed", (window as any)[acConnectFlowListenerName]);
+  window.addEventListener("ac-connect-started", (window as any)[acConnectFlowListenerName]);
+  window.addEventListener("ac-connect-cancelled", (window as any)[acConnectFlowListenerName]);
 
   const flowModeListenerName = "__flowModeToolbarListener";
   if ((window as any)[flowModeListenerName]) {
@@ -665,6 +698,8 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
   // Деактивация всех инструментов для предотвращения конфликтов
   const deactivateAllTools = () => {
     window.dispatchEvent(new CustomEvent("radiator-connect-stop"));
+    window.dispatchEvent(new CustomEvent("terminal-connect-stop"));
+    window.dispatchEvent(new CustomEvent("ac-connect-stop"));
     (window as any).ductDrawingTool?.deactivate();
     (window as any).wallDrawingTool?.deactivate();
     (window as any).terminalPlacementTool?.deactivate();
@@ -839,6 +874,17 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
     tool.activeParams.d = selectedPipeDiameter;
     tool.activeParams.material = selectedPipeMaterial;
     tool.activeParams.system = selectedPipeSystem;
+    tool.activeParams.sortamentRef = selectedPipeRef;
+    tool.setSnappingSettings({ angleStepDeg: selectedAngleStep });
+  };
+
+  const syncTwoPipeParamsToTool = () => {
+    const tool = (window as any).twoPipeDrawingTool;
+    if (!tool) return;
+
+    tool.activeParams.d = selectedPipeDiameter;
+    tool.activeParams.material = selectedPipeMaterial;
+    tool.activeParams.spacing = selectedTwoPipeSpacing;
     tool.activeParams.sortamentRef = selectedPipeRef;
     tool.setSnappingSettings({ angleStepDeg: selectedAngleStep });
   };
@@ -1048,6 +1094,40 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
     update();
   };
 
+  const onToggleTerminalConnectTool = () => {
+    if ((window as any).__terminalConnectToolActive) {
+      window.dispatchEvent(new CustomEvent("terminal-connect-stop"));
+    } else {
+      deactivateAllTools();
+      window.dispatchEvent(new CustomEvent("terminal-connect-toggle"));
+    }
+    update();
+  };
+
+  const onToggleAcConnectTool = () => {
+    if ((window as any).__acConnectToolActive) {
+      window.dispatchEvent(new CustomEvent("ac-connect-stop"));
+    } else {
+      deactivateAllTools();
+      window.dispatchEvent(new CustomEvent("ac-connect-toggle"));
+    }
+    update();
+  };
+
+  const onToggleVrvOutdoorTool = () => {
+    const tool = (window as any).electricalPlacementTool;
+    if (tool) {
+      if (tool.enabled && tool.activeKind === "vrv_outdoor") {
+        tool.deactivate();
+      } else {
+        deactivateAllTools();
+        applyElevationToTools();
+        tool.activate("vrv_outdoor");
+      }
+      update();
+    }
+  };
+
   // Переключение состояния инструмента размещения арматуры ОВ/ВК
   const onToggleAccessoryTool = (kind: any) => {
     const tool = (window as any).accessoryPlacementTool;
@@ -1071,6 +1151,7 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
         tool.deactivate();
       } else {
         deactivateAllTools();
+        syncTwoPipeParamsToTool();
         applyElevationToTools();
         tool.activeType = type;
         if (type === "heating") {
@@ -1306,6 +1387,9 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
   const isACCeilingToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "ac_ceiling") || false;
   const isRadiatorToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "radiator") || false;
   const isRadiatorConnectToolEnabled = (window as any).__radiatorConnectToolActive === true;
+  const isTerminalConnectToolEnabled = (window as any).__terminalConnectToolActive === true;
+  const isAcConnectToolEnabled = (window as any).__acConnectToolActive === true;
+  const isVrvOutdoorToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "vrv_outdoor") || false;
   const isToiletToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "toilet") || false;
   const isSinkToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "sink") || false;
   const isWorkstationToolEnabled = ((window as any).electricalPlacementTool?.enabled && (window as any).electricalPlacementTool?.activeKind === "workstation") || false;
@@ -1320,6 +1404,14 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
   const isBalancingToolEnabled = ((window as any).accessoryPlacementTool?.enabled && (window as any).accessoryPlacementTool?.activeKind === "balancing") || false;
   const isFilterToolEnabled = ((window as any).accessoryPlacementTool?.enabled && (window as any).accessoryPlacementTool?.activeKind === "filter") || false;
 
+  const isPlacementToolActive = isGrilleToolEnabled || isDiffuserToolEnabled || isEquipmentToolEnabled ||
+    isSocketToolEnabled || isPanelToolEnabled || isLightToolEnabled || isDoorToolEnabled ||
+    isWindowToolEnabled || isColumnToolEnabled || isACToolEnabled || isACCeilingToolEnabled ||
+    isRadiatorToolEnabled || isToiletToolEnabled || isSinkToolEnabled || isWorkstationToolEnabled ||
+    isThrottleToolEnabled || isSilencerToolEnabled || isFireDamperToolEnabled ||
+    isBallValveToolEnabled || isBalancingToolEnabled || isFilterToolEnabled ||
+    isVrvOutdoorToolEnabled;
+
   // Сантехнические системы для выпадающего списка
   const plumbingSystemKeys = ["ХВС", "ГВС", "Канализация"];
   const allSysSettings = (window as any).systemColorSettings || {};
@@ -1328,6 +1420,34 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
     selectedPipeSystem = allPipeSystemKeys[0];
     syncPipeParamsToTool();
   }
+
+  const renderElevationControls = () => {
+    return BUI.html`
+      <div style="height: 1.7rem; width: 1px; background: var(--bim-ui_bg-contrast-30); align-self: center; margin: 0 0.25rem;"></div>
+
+      <bim-dropdown @change=${(e: any) => {
+        const [levelName] = e.target.value;
+        if (levelName) {
+          const levelsList = (window as any).projectLevels || {};
+          if (levelName in levelsList) {
+            const elevVal = levelsList[levelName];
+            window.dispatchEvent(new CustomEvent("elevation-updated", { detail: { elevation: elevVal } }));
+          }
+        }
+      }} tooltip-title="Уровень" style="width: 9rem;">
+        ${Object.entries((window as any).projectLevels || {}).map(([name, val]) => BUI.html`
+          <bim-option label=${`${name} (${val} мм)`} value=${name} ?checked=${currentElevation === val}></bim-option>
+        `)}
+      </bim-dropdown>
+      
+      <bim-number-input suffix=" мм" step="100" .value=${currentElevation} @change=${(e: any) => {
+        const val = Number(e.target.value);
+        if (!isNaN(val)) {
+          window.dispatchEvent(new CustomEvent("elevation-updated", { detail: { elevation: val } }));
+        }
+      }} tooltip-title="Отметка" style="width: 7.5rem;"></bim-number-input>
+    `;
+  };
 
   const renderDrawingParamsSection = () => {
     if (isDuctToolEnabled) {
@@ -1391,6 +1511,7 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
               `;
             })}
           </bim-dropdown>
+          ${renderElevationControls()}
         </bim-toolbar-section>
       `;
     }
@@ -1418,6 +1539,7 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
               <bim-option label=${`${item.w}x${item.h} мм`} value=${item.ref} ?checked=${selectedTrayRef === item.ref}></bim-option>
             `)}
           </bim-dropdown>
+          ${renderElevationControls()}
         </bim-toolbar-section>
       `;
     }
@@ -1476,6 +1598,61 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
               <bim-option label=${`⌀${item.d} мм`} value=${item.ref} ?checked=${selectedPipeRef === item.ref}></bim-option>
             `)}
           </bim-dropdown>
+          ${renderElevationControls()}
+        </bim-toolbar-section>
+      `;
+    }
+
+    const isTwoPipeActive = isTwoPipeHeatingActive || isTwoPipeCoolingActive;
+    if (isTwoPipeActive) {
+      const pipeSortament = sortamentList.filter((item: any) => item.shape === "pipe");
+      return BUI.html`
+        <bim-toolbar-section label="Параметры двухтрубки" icon="mdi:vector-difference">
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedPipeMaterial = val as any;
+              syncTwoPipeParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Материал" style="width: 7rem;">
+            <bim-option label="Сталь" value="steel_water" ?checked=${selectedPipeMaterial === "steel_water"}></bim-option>
+            <bim-option label="ППR" value="ppr" ?checked=${selectedPipeMaterial === "ppr"}></bim-option>
+          </bim-dropdown>
+
+          <bim-dropdown @change=${(e: any) => {
+            const [val] = e.target.value;
+            if (val) {
+              selectedPipeRef = val;
+              const item = sortamentList.find(i => i.ref === selectedPipeRef);
+              if (item) {
+                selectedPipeDiameter = item.d;
+              }
+              syncTwoPipeParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Диаметр" style="width: 8rem;">
+            ${pipeSortament.map((item: any) => BUI.html`
+              <bim-option label=${`⌀${item.d} мм`} value=${item.ref} ?checked=${selectedPipeRef === item.ref}></bim-option>
+            `)}
+          </bim-dropdown>
+
+          <bim-number-input suffix=" мм" step="50" .value=${selectedTwoPipeSpacing} @change=${(e: any) => {
+            const val = Number(e.target.value);
+            if (!isNaN(val)) {
+              selectedTwoPipeSpacing = val;
+              syncTwoPipeParamsToTool();
+              syncGlobalsToWindow();
+              window.dispatchEvent(new CustomEvent("drawing-settings-external-updated"));
+              update();
+            }
+          }} tooltip-title="Межосевое расстояние" style="width: 7rem;"></bim-number-input>
+          
+          ${renderElevationControls()}
         </bim-toolbar-section>
       `;
     }
@@ -1524,6 +1701,35 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
             <bim-option label="Бетон" value="concrete" ?checked=${selectedWallMaterial === "concrete"}></bim-option>
             <bim-option label="Гипсокартон" value="gypsum" ?checked=${selectedWallMaterial === "gypsum"}></bim-option>
           </bim-dropdown>
+          ${renderElevationControls()}
+        </bim-toolbar-section>
+      `;
+    }
+
+    if (isPlacementToolActive) {
+      return BUI.html`
+        <bim-toolbar-section label="Параметры размещения" icon="mdi:map-marker-distance">
+          <bim-dropdown @change=${(e: any) => {
+            const [levelName] = e.target.value;
+            if (levelName) {
+              const levelsList = (window as any).projectLevels || {};
+              if (levelName in levelsList) {
+                const elevVal = levelsList[levelName];
+                window.dispatchEvent(new CustomEvent("elevation-updated", { detail: { elevation: elevVal } }));
+              }
+            }
+          }} tooltip-title="Уровень" style="width: 10rem;">
+            ${Object.entries((window as any).projectLevels || {}).map(([name, val]) => BUI.html`
+              <bim-option label=${`${name} (${val} мм)`} value=${name} ?checked=${currentElevation === val}></bim-option>
+            `)}
+          </bim-dropdown>
+          
+          <bim-number-input suffix=" мм" step="100" .value=${currentElevation} @change=${(e: any) => {
+            const val = Number(e.target.value);
+            if (!isNaN(val)) {
+              window.dispatchEvent(new CustomEvent("elevation-updated", { detail: { elevation: val } }));
+            }
+          }} tooltip-title="Отметка" style="width: 8rem;"></bim-number-input>
         </bim-toolbar-section>
       `;
     }
@@ -1578,84 +1784,90 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
     ></bim-button>
   `;
 
+  // ── ЕДИНЫЙ ДЕКЛАРАТИВНЫЙ РЕЕСТР ДИСЦИПЛИН (единая flow-логика) ──────────────
+  // Добавить дисциплину/инструмент = одна запись здесь. Никаких if(discipline) по коду.
+  type FlowAction = { icon: string; label: string; active: boolean; onClick: () => void };
+  type FlowDisciplineDef = { id: FlowDiscipline; icon: string; title: string; actions: FlowAction[] };
+
+  const flowDisciplines: FlowDisciplineDef[] = [
+    {
+      id: "architecture", icon: "mdi:office-building", title: "Архитектура",
+      actions: [
+        { icon: "mdi:wall", label: "Стена", active: isWallToolEnabled, onClick: onToggleWallTool },
+        { icon: "mdi:door", label: "Дверь", active: isDoorToolEnabled, onClick: onToggleDoorTool },
+        { icon: "mdi:window-maximize", label: "Окно", active: isWindowToolEnabled, onClick: onToggleWindowTool },
+        { icon: "mdi:pillar", label: "Колонна", active: isColumnToolEnabled, onClick: onToggleColumnTool },
+        { icon: "mdi:desk", label: "Рабочее место", active: isWorkstationToolEnabled, onClick: onToggleWorkstationTool },
+      ],
+    },
+    {
+      id: "ventilation", icon: "mdi:windsock", title: "Вентиляция и кондиционирование",
+      actions: [
+        { icon: "mdi:pipe", label: "Воздуховод", active: isDuctToolEnabled, onClick: onToggleDuctTool },
+        { icon: "mdi:server", label: "Вентустановка", active: isEquipmentToolEnabled, onClick: onToggleEquipmentTool },
+        { icon: "mdi:grid", label: "Решетка", active: isGrilleToolEnabled, onClick: onToggleGrilleTool },
+        { icon: "mdi:circle-double", label: "Диффузор", active: isDiffuserToolEnabled, onClick: onToggleDiffuserTool },
+        { icon: "mdi:link-variant", label: "Подключить диффузор", active: isTerminalConnectToolEnabled, onClick: onToggleTerminalConnectTool },
+        { icon: "mdi:air-conditioner", label: "Кондиционер", active: isACToolEnabled, onClick: onToggleACTool },
+        { icon: "mdi:air-filter", label: "Кассета", active: isACCeilingToolEnabled, onClick: onToggleACCeilingTool },
+        { icon: "mdi:heat-pump-outline", label: "Наружный VRV", active: isVrvOutdoorToolEnabled, onClick: onToggleVrvOutdoorTool },
+        { icon: "mdi:vector-difference", label: "Трасса ХС", active: isTwoPipeCoolingActive, onClick: () => onToggleTwoPipeTool("cooling") },
+        { icon: "mdi:link-variant", label: "Подключить кондей", active: isAcConnectToolEnabled, onClick: onToggleAcConnectTool },
+        { icon: "mdi:valve", label: "Дроссель", active: isThrottleToolEnabled, onClick: () => onToggleAccessoryTool("throttle") },
+        { icon: "mdi:volume-mute", label: "Шумоглушитель", active: isSilencerToolEnabled, onClick: () => onToggleAccessoryTool("silencer") },
+        { icon: "mdi:fire-alert", label: "Пожарный клапан", active: isFireDamperToolEnabled, onClick: () => onToggleAccessoryTool("fire_damper") },
+      ],
+    },
+    {
+      id: "heating", icon: "mdi:radiator", title: "Отопление",
+      actions: [
+        { icon: "mdi:radiator", label: "Радиатор", active: isRadiatorToolEnabled, onClick: onToggleRadiatorTool },
+        { icon: "mdi:vector-difference", label: "Двухтрубка", active: isTwoPipeHeatingActive, onClick: () => onToggleTwoPipeTool("heating") },
+        { icon: "mdi:link-variant", label: "Подключить", active: isRadiatorConnectToolEnabled, onClick: onToggleRadiatorConnectTool },
+        { icon: "mdi:water-boiler-alert", label: "Кран", active: isBallValveToolEnabled, onClick: () => onToggleAccessoryTool("ball_valve") },
+        { icon: "mdi:tune", label: "Балансировка", active: isBalancingToolEnabled, onClick: () => onToggleAccessoryTool("balancing") },
+        { icon: "mdi:filter", label: "Фильтр", active: isFilterToolEnabled, onClick: () => onToggleAccessoryTool("filter") },
+      ],
+    },
+    {
+      id: "plumbing", icon: "mdi:water", title: "Водоснабжение и канализация",
+      actions: [
+        { icon: "mdi:water-pump", label: "Труба", active: isPipeToolEnabled, onClick: onTogglePipeTool },
+        { icon: "mdi:toilet", label: "Унитаз", active: isToiletToolEnabled, onClick: onToggleToiletTool },
+        { icon: "mdi:hand-wash", label: "Раковина", active: isSinkToolEnabled, onClick: onToggleSinkTool },
+      ],
+    },
+    {
+      id: "electrical", icon: "mdi:flash", title: "Электрика и слаботочка",
+      actions: [
+        { icon: "mdi:lightning-bolt-outline", label: "Лоток", active: isTrayToolEnabled, onClick: onToggleTrayTool },
+        { icon: "mdi:power-socket-eu", label: "Розетка", active: isSocketToolEnabled, onClick: onToggleSocketTool },
+        { icon: "mdi:alpha-e-box", label: "Щит", active: isPanelToolEnabled, onClick: onTogglePanelTool },
+        { icon: "mdi:lightbulb-on", label: "Светильник", active: isLightToolEnabled, onClick: onToggleLightTool },
+      ],
+    },
+  ];
+
   const renderActions = () => {
-    if (activeDiscipline === "architecture") {
-      return BUI.html`
-        ${actionButton("mdi:wall", "Стена", isWallToolEnabled, onToggleWallTool)}
-        ${actionButton("mdi:door", "Дверь", isDoorToolEnabled, onToggleDoorTool)}
-        ${actionButton("mdi:window-maximize", "Окно", isWindowToolEnabled, onToggleWindowTool)}
-        ${actionButton("mdi:pillar", "Колонна", isColumnToolEnabled, onToggleColumnTool)}
-        ${actionButton("mdi:desk", "Рабочее место", isWorkstationToolEnabled, onToggleWorkstationTool)}
-      `;
-    }
-
-    if (activeDiscipline === "ventilation") {
-      return BUI.html`
-        ${actionButton("mdi:pipe", "Воздуховод", isDuctToolEnabled, onToggleDuctTool)}
-        ${actionButton("mdi:server", "Вентустановка", isEquipmentToolEnabled, onToggleEquipmentTool)}
-        ${actionButton("mdi:grid", "Решетка", isGrilleToolEnabled, onToggleGrilleTool)}
-        ${actionButton("mdi:circle-double", "Диффузор", isDiffuserToolEnabled, onToggleDiffuserTool)}
-        ${actionButton("mdi:air-conditioner", "Кондиционер", isACToolEnabled, onToggleACTool)}
-        ${actionButton("mdi:air-filter", "Кассета", isACCeilingToolEnabled, onToggleACCeilingTool)}
-        ${actionButton("mdi:valve", "Дроссель", isThrottleToolEnabled, () => onToggleAccessoryTool("throttle"))}
-        ${actionButton("mdi:volume-mute", "Шумоглушитель", isSilencerToolEnabled, () => onToggleAccessoryTool("silencer"))}
-        ${actionButton("mdi:fire-alert", "Пожарный клапан", isFireDamperToolEnabled, () => onToggleAccessoryTool("fire_damper"))}
-      `;
-    }
-
-    if (activeDiscipline === "heating") {
-      return BUI.html`
-        ${actionButton("mdi:radiator", "Радиатор", isRadiatorToolEnabled, onToggleRadiatorTool)}
-        ${actionButton("mdi:vector-difference", "Двухтрубка", isTwoPipeHeatingActive, () => onToggleTwoPipeTool("heating"))}
-        ${actionButton("mdi:link-variant", "Подключить", isRadiatorConnectToolEnabled, onToggleRadiatorConnectTool)}
-        ${actionButton("mdi:water-boiler-alert", "Кран", isBallValveToolEnabled, () => onToggleAccessoryTool("ball_valve"))}
-        ${actionButton("mdi:tune", "Балансировка", isBalancingToolEnabled, () => onToggleAccessoryTool("balancing"))}
-        ${actionButton("mdi:filter", "Фильтр", isFilterToolEnabled, () => onToggleAccessoryTool("filter"))}
-      `;
-    }
-
-    if (activeDiscipline === "plumbing") {
-      return BUI.html`
-        ${actionButton("mdi:water-pump", "Труба", isPipeToolEnabled, onTogglePipeTool)}
-        ${actionButton("mdi:toilet", "Унитаз", isToiletToolEnabled, onToggleToiletTool)}
-        ${actionButton("mdi:hand-wash", "Раковина", isSinkToolEnabled, onToggleSinkTool)}
-      `;
-    }
-
-    if (activeDiscipline === "electrical") {
-      return BUI.html`
-        ${actionButton("mdi:lightning-bolt-outline", "Лоток", isTrayToolEnabled, onToggleTrayTool)}
-        ${actionButton("mdi:power-socket-eu", "Розетка", isSocketToolEnabled, onToggleSocketTool)}
-        ${actionButton("mdi:alpha-e-box", "Щит", isPanelToolEnabled, onTogglePanelTool)}
-        ${actionButton("mdi:lightbulb-on", "Светильник", isLightToolEnabled, onToggleLightTool)}
-      `;
-    }
-
-    return BUI.html``;
+    const def = flowDisciplines.find((d) => d.id === activeDiscipline);
+    if (!def) return BUI.html``;
+    return BUI.html`${def.actions.map((a) => actionButton(a.icon, a.label, a.active, a.onClick))}`;
   };
 
-  const activeTitle: Record<FlowDiscipline, string> = {
-    architecture: "Архитектура",
-    ventilation: "Вентиляция и кондиционирование",
-    heating: "Отопление",
-    plumbing: "Водоснабжение и канализация",
-    electrical: "Электрика и слаботочка",
-  };
+  const activeTitleOf = (d: FlowDiscipline) =>
+    flowDisciplines.find((x) => x.id === d)?.title || "";
 
   const rootDock = BUI.html`
     <div style="display: flex; gap: 0.5rem; align-items: center; justify-content: center; max-width: calc(100vw - 2rem); overflow-x: auto; padding: 0.25rem;">
-      ${disciplineButton("architecture", "mdi:office-building", "Архитектура")}
-      ${disciplineButton("ventilation", "mdi:windsock", "Вентиляция и кондиционирование")}
-      ${disciplineButton("heating", "mdi:radiator", "Отопление")}
-      ${disciplineButton("plumbing", "mdi:water", "Водоснабжение и канализация")}
-      ${disciplineButton("electrical", "mdi:flash", "Электрика и слаботочка")}
+      ${flowDisciplines.map((d) => disciplineButton(d.id, d.icon, d.title))}
     </div>
   `;
 
   const activeDock = activeDiscipline ? BUI.html`
     <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: center; max-width: calc(100vw - 2rem);">
-      <div style="display: flex; gap: 0.45rem; align-items: center; justify-content: center; overflow-x: auto; max-width: 100%; padding: 0.25rem;">
-        <bim-button icon="mdi:close" label="Выход" tooltip-title="Выход из режима" style="height: 2.5rem; --bim-ui_accent-base: #64748b;" @click=${exitDiscipline}></bim-button>
+      <div style="display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.45rem; align-items: center; width: min(calc(100vw - 3rem), 100%); padding: 0.25rem;">
+        <bim-button icon="mdi:close" label="Выход" tooltip-title="Выход из режима" style="height: 2.5rem; flex: 0 0 auto; --bim-ui_accent-base: #64748b;" @click=${exitDiscipline}></bim-button>
+        <div style="display: flex; gap: 0.45rem; align-items: center; overflow-x: auto; min-width: 0; padding-bottom: 0.1rem;">
         <div style="height: 1.7rem; width: 1px; background: var(--bim-ui_bg-contrast-30); flex: 0 0 auto;"></div>
         ${renderActions()}
         <div style="height: 1.7rem; width: 1px; background: var(--bim-ui_bg-contrast-30); flex: 0 0 auto;"></div>
@@ -1663,9 +1875,10 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
         ${actionButton(appIcons.SHOW, "Показать все", false, () => onShowAll({ target: { loading: false } as any }))}
         ${actionButton(appIcons.TRANSPARENT, "Ghost", false, () => onToggleGhost())}
         ${actionButton("mdi:map-marker-plus", "Пометка", (window as any).notePlacementActive || false, onToggleNoteTool)}
+        </div>
       </div>
       <div style="font-size: 0.78rem; color: var(--bim-ui_bg-contrast-70); pointer-events: none;">
-        ${activeTitle[activeDiscipline]}
+        ${activeTitleOf(activeDiscipline)}
       </div>
     </div>
   ` : BUI.html``;

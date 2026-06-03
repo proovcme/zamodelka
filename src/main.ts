@@ -19,6 +19,7 @@ import { SystemManager } from "./bim-components/SystemManager";
 import { AccessoryPlacementTool } from "./bim-components/AccessoryPlacementTool";
 import { TwoPipeDrawingTool } from "./bim-components/TwoPipeDrawingTool";
 import { ConnectionNodes } from "./bim-components/ConnectionNodes";
+import { ConnectFlow } from "./bim-components/ConnectFlow";
 
 
 BUI.Manager.init();
@@ -443,12 +444,6 @@ function clearCustomSelection() {
   window.dispatchEvent(new CustomEvent("custom-element-selected", { detail: null }));
 }
 
-let radiatorConnectToolActive = false;
-let radiatorConnectTarget: any | null = null;
-let radiatorConnectTooltip: HTMLDivElement | null = null;
-const radiatorPipeHighlights = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
-const radiatorTargetHighlights = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
-
 function getCustomElementFromObject(object: THREE.Object3D | null) {
   let current: THREE.Object3D | null = object;
   while (current) {
@@ -462,255 +457,172 @@ function getCustomElementFromObject(object: THREE.Object3D | null) {
   return null;
 }
 
-function restoreHighlightMap(map: Map<THREE.Mesh, THREE.Material | THREE.Material[]>) {
-  for (const [mesh, original] of map.entries()) {
-    if (mesh.material && mesh.material !== original) {
-      const current = mesh.material;
-      if (Array.isArray(current)) current.forEach((mat) => mat.dispose());
-      else current.dispose();
-    }
-    mesh.material = original;
-  }
-  map.clear();
-}
-
-function ensureRadiatorConnectTooltip() {
-  if (radiatorConnectTooltip) return radiatorConnectTooltip;
-
-  radiatorConnectTooltip = document.createElement("div");
-  radiatorConnectTooltip.id = "radiator-connect-flow-tooltip";
-  Object.assign(radiatorConnectTooltip.style, {
-    position: "fixed",
-    zIndex: "10000",
-    display: "none",
-    pointerEvents: "none",
-    maxWidth: "280px",
-    padding: "8px 10px",
-    borderRadius: "8px",
-    background: "rgba(15, 23, 42, 0.93)",
-    border: "1px solid rgba(34, 211, 238, 0.32)",
-    color: "#e2e8f0",
-    fontFamily: "system-ui, -apple-system, sans-serif",
-    fontSize: "11px",
-    boxShadow: "0 12px 28px rgba(0, 0, 0, 0.3)",
-    backdropFilter: "blur(10px)",
-  } as Partial<CSSStyleDeclaration>);
-  document.body.appendChild(radiatorConnectTooltip);
-  return radiatorConnectTooltip;
-}
-
-function hideRadiatorConnectTooltip() {
-  if (radiatorConnectTooltip) {
-    radiatorConnectTooltip.style.display = "none";
-  }
-}
-
-function removeRadiatorConnectTooltip() {
-  if (radiatorConnectTooltip) {
-    radiatorConnectTooltip.remove();
-    radiatorConnectTooltip = null;
-  }
-}
-
-function showRadiatorConnectTooltip(event: MouseEvent, hoverElem?: any) {
-  if (!radiatorConnectToolActive) return;
-
-  const tooltip = ensureRadiatorConnectTooltip();
-  const keyStyle = "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;font-weight:800;color:#e2e8f0;background:rgba(15,23,42,0.95);border:1px solid rgba(148,163,184,0.35);border-radius:3px;padding:1px 4px;";
-  const chipStyle = "display:inline-flex;align-items:center;gap:4px;padding:2px 5px;border-radius:4px;background:rgba(148,163,184,0.12);color:#cbd5e1;white-space:nowrap;";
-  const phaseTitle = radiatorConnectTarget ? "Сборка нижнего узла" : "Нижнее подключение";
-  const mainAction = radiatorConnectTarget
-    ? (hoverElem?.type === "pipe" && hoverElem.pairId ? "Врежу пару труб и соберу подводки" : "Кликните двухтрубную магистраль")
-    : (hoverElem?.type === "radiator" ? "Выбрать этот радиатор" : "Кликните радиатор");
-  const detail = radiatorConnectTarget
-    ? "Система разрежет подачу/обратку, построит две подводки снизу и обновит тройники."
-    : "После выбора радиатора подсвечу совместимые двухтрубные трассы.";
-
-  tooltip.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:6px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-        <span style="color:#22d3ee;font-weight:800;">${phaseTitle}</span>
-        <span style="color:#94a3b8;">radiator</span>
-      </div>
-      <div style="color:#e2e8f0;font-weight:700;">${mainAction}</div>
-      <div style="color:#94a3b8;line-height:1.35;">${detail}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;">
-        <span style="${chipStyle}"><span style="${keyStyle}">ЛКМ</span> выбрать</span>
-        <span style="${chipStyle}"><span style="${keyStyle}">Esc</span> выйти</span>
-        <span style="${chipStyle}"><span style="${keyStyle}">узел</span> нижнее подключение</span>
-      </div>
-    </div>
-  `;
-  tooltip.style.display = "block";
-  const left = Math.min(event.clientX + 16, window.innerWidth - 300);
-  const top = Math.min(event.clientY + 16, window.innerHeight - 170);
-  tooltip.style.left = `${Math.max(8, left)}px`;
-  tooltip.style.top = `${Math.max(8, top)}px`;
-}
-
-function getRadiatorConnectHoverElement(event: MouseEvent) {
-  const dom = world.renderer?.three.domElement;
-  if (!dom) return null;
-
-  const rect = dom.getBoundingClientRect();
-  selectionMouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  selectionMouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  selectionRaycaster.setFromCamera(selectionMouse, world.camera.three);
-
-  const targets = radiatorConnectTarget ? collectConnectablePipeMeshes() : collectRadiatorMeshes();
-  const intersects = selectionRaycaster.intersectObjects(targets, true);
-  return intersects.length > 0 ? getCustomElementFromObject(intersects[0].object) : null;
-}
-
-function updateRadiatorConnectCursor(hoverElem?: any) {
-  const domEl = world.renderer?.three.domElement.parentElement;
-  if (!domEl) return;
-  const canPickRadiator = !radiatorConnectTarget && hoverElem?.type === "radiator";
-  const canPickPipe = !!radiatorConnectTarget && hoverElem?.type === "pipe" && !!hoverElem.pairId;
-  domEl.style.cursor = canPickRadiator || canPickPipe ? "copy" : "crosshair";
-}
-
-function updateRadiatorConnectState() {
-  (window as any).__radiatorConnectToolActive = radiatorConnectToolActive;
-  (window as any).__radiatorConnectTargetId = radiatorConnectTarget?.id || null;
-  window.dispatchEvent(new CustomEvent("radiator-connect-changed", {
-    detail: {
-      active: radiatorConnectToolActive,
-      targetId: radiatorConnectTarget?.id || null,
-      phase: radiatorConnectTarget ? "pick-pipe" : "pick-radiator",
-    },
-  }));
-}
-
+// Вспомогательные функции сбора мешей для ConnectFlow
 function collectConnectablePipeMeshes() {
   const pipeMeshes: THREE.Object3D[] = [];
-  ductDrawingTool.ductsGroup.traverse((child: THREE.Object3D) => {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const elem = getCustomElementFromObject(mesh);
-    if (elem?.type === "pipe" && elem.pairId && !elem.deviceId) {
-      pipeMeshes.push(mesh);
-    }
-  });
+  if (ductDrawingTool && ductDrawingTool.ductsGroup) {
+    ductDrawingTool.ductsGroup.traverse((child: THREE.Object3D) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const elem = getCustomElementFromObject(mesh);
+      if (elem?.type === "pipe" && elem.pairId && !elem.deviceId) {
+        pipeMeshes.push(mesh);
+      }
+    });
+  }
   return pipeMeshes;
 }
 
-function collectRadiatorMeshes() {
-  const radiatorMeshes: THREE.Object3D[] = [];
-  ductDrawingTool.ductsGroup.traverse((child: THREE.Object3D) => {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const elem = getCustomElementFromObject(mesh);
-    if (elem?.type === "radiator") {
-      radiatorMeshes.push(mesh);
-    }
-  });
-  return radiatorMeshes;
-}
-
-function highlightRadiatorTargets() {
-  restoreHighlightMap(radiatorTargetHighlights);
-  const highlightMat = new THREE.MeshStandardMaterial({
-    color: 0x38bdf8,
-    emissive: 0x06243a,
-    emissiveIntensity: 0.35,
-    transparent: true,
-    opacity: 0.82,
-  });
-
-  for (const obj of collectRadiatorMeshes()) {
-    const mesh = obj as THREE.Mesh;
-    if (radiatorTargetHighlights.has(mesh)) continue;
-    radiatorTargetHighlights.set(mesh, mesh.material);
-    mesh.material = highlightMat.clone();
+function collectConnectableDuctMeshes() {
+  const ductMeshes: THREE.Object3D[] = [];
+  if (ductDrawingTool && ductDrawingTool.ductsGroup) {
+    ductDrawingTool.ductsGroup.traverse((child: THREE.Object3D) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const elem = getCustomElementFromObject(mesh);
+      if (elem?.type === "duct" && !elem.deviceId) {
+        ductMeshes.push(mesh);
+      }
+    });
   }
-  highlightMat.dispose();
+  return ductMeshes;
 }
 
-function highlightCompatiblePipes() {
-  restoreHighlightMap(radiatorPipeHighlights);
-  const highlightMat = new THREE.MeshStandardMaterial({
-    color: 0xfbbf24,
-    emissive: 0x3d2600,
-    emissiveIntensity: 0.35,
-    transparent: true,
-    opacity: 0.8,
-  });
-
-  for (const obj of collectConnectablePipeMeshes()) {
-    const mesh = obj as THREE.Mesh;
-    if (radiatorPipeHighlights.has(mesh)) continue;
-    radiatorPipeHighlights.set(mesh, mesh.material);
-    mesh.material = highlightMat.clone();
+function collectMeshesByType(types: string | string[]) {
+  const list = Array.isArray(types) ? types : [types];
+  const meshes: THREE.Object3D[] = [];
+  if (ductDrawingTool && ductDrawingTool.ductsGroup) {
+    ductDrawingTool.ductsGroup.traverse((child: THREE.Object3D) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const elem = getCustomElementFromObject(mesh);
+      if (elem && list.includes(elem.type)) {
+        meshes.push(mesh);
+      }
+    });
   }
-  highlightMat.dispose();
+  return meshes;
 }
 
-function clearRadiatorConnectMode() {
-  const wasActive = radiatorConnectToolActive || !!radiatorConnectTarget;
-  restoreHighlightMap(radiatorPipeHighlights);
-  restoreHighlightMap(radiatorTargetHighlights);
-  removeRadiatorConnectTooltip();
-  radiatorConnectToolActive = false;
-  radiatorConnectTarget = null;
-  const domEl = world.renderer?.three.domElement.parentElement;
-  if (domEl) domEl.style.cursor = "";
-  updateRadiatorConnectState();
-  if (wasActive) window.dispatchEvent(new CustomEvent("radiator-connect-cancelled"));
-}
-
-function setRadiatorConnectTarget(radiator: any) {
-  radiatorConnectTarget = radiator;
-  restoreHighlightMap(radiatorTargetHighlights);
-  highlightCompatiblePipes();
-  updateRadiatorConnectState();
-}
-
-function activateRadiatorConnectMode(radiator?: any) {
-  clearRadiatorConnectMode();
-  radiatorConnectToolActive = true;
-  clearCustomSelection();
-  const domEl = world.renderer?.three.domElement.parentElement;
-  if (domEl) domEl.style.cursor = "crosshair";
-
-  if (radiator) {
-    setRadiatorConnectTarget(radiator);
-  } else {
-    radiatorConnectTarget = null;
-    highlightRadiatorTargets();
-    updateRadiatorConnectState();
+// Инициализируем унифицированные ConnectFlow
+const radiatorConnectFlow = new ConnectFlow(
+  components,
+  world,
+  projectElements,
+  ductDrawingTool,
+  viewport,
+  {
+    id: "radiator",
+    deviceColor: 0x38bdf8,
+    targetColor: 0xfbbf24,
+    isValidDevice: (elem: any) => elem.type === "radiator",
+    isValidTarget: (elem: any) => elem.type === "pipe" && !!elem.pairId,
+    collectDeviceMeshes: () => collectMeshesByType("radiator"),
+    collectTargetMeshes: () => collectConnectablePipeMeshes(),
+    tooltipPhaseTexts: {
+      title1: "Нижнее подключение",
+      action1: "Кликните радиатор",
+      hoverAction1: "Выбрать этот радиатор",
+      detail1: "После выбора радиатора подсвечу совместимые двухтрубные трассы.",
+      deviceLabel: "radiator",
+      title2: "Сборка нижнего узла",
+      action2: "Кликните двухтрубную магистраль",
+      hoverAction2: "Врежу пару труб и соберу подводки",
+      detail2: "Система разрежет подачу/обратку, построит две подводки снизу и обновит тройники.",
+      footer1: "нижнее подключение",
+      footer2: "нижнее подключение"
+    },
+    connect: (elements: any[], device: any, target: any) => ConnectionNodes.connect(elements, device, target),
   }
-  window.dispatchEvent(new CustomEvent("radiator-connect-started"));
-}
+);
 
-function rearmRadiatorConnectMode() {
-  radiatorConnectTarget = null;
-  restoreHighlightMap(radiatorPipeHighlights);
-  restoreHighlightMap(radiatorTargetHighlights);
-  highlightRadiatorTargets();
-  updateRadiatorConnectState();
-}
-
-window.addEventListener("radiator-connect-start", (event: any) => {
-  activateRadiatorConnectMode(event.detail?.radiator);
-});
-window.addEventListener("radiator-connect-toggle", () => {
-  if (radiatorConnectToolActive) clearRadiatorConnectMode();
-  else activateRadiatorConnectMode();
-});
-window.addEventListener("radiator-connect-stop", clearRadiatorConnectMode);
-
-viewport.addEventListener("pointermove", (event) => {
-  if (!radiatorConnectToolActive) {
-    hideRadiatorConnectTooltip();
-    return;
+const terminalConnectFlow = new ConnectFlow(
+  components,
+  world,
+  projectElements,
+  ductDrawingTool,
+  viewport,
+  {
+    id: "terminal",
+    deviceColor: 0x38bdf8,
+    targetColor: 0xfbbf24,
+    isValidDevice: (elem: any) => elem.type === "terminal",
+    isValidTarget: (elem: any) => elem.type === "duct" && !elem.deviceId,
+    collectDeviceMeshes: () => collectMeshesByType("terminal"),
+    collectTargetMeshes: () => collectConnectableDuctMeshes(),
+    tooltipPhaseTexts: {
+      title1: "Гибкая подводка (флекс)",
+      action1: "Кликните диффузор/решетку",
+      hoverAction1: "Выбрать диффузор/решетку",
+      detail1: "После выбора оконечного устройства выберите магистральный воздуховод.",
+      deviceLabel: "terminal",
+      title2: "Врезка флекса",
+      action2: "Кликните воздуховод",
+      hoverAction2: "Построить гибкий рукав флекса к каналу",
+      detail2: "Врежем тройник или воротник, проложим гибкую трубу к патрубку.",
+      footer1: "флекс",
+      footer2: "флекс"
+    },
+    connect: (elements: any[], device: any, target: any) => ConnectionNodes.connect(elements, device, target),
   }
-  const hoverElem = getRadiatorConnectHoverElement(event);
-  updateRadiatorConnectCursor(hoverElem);
-  showRadiatorConnectTooltip(event, hoverElem);
-});
-viewport.addEventListener("pointerleave", hideRadiatorConnectTooltip);
+);
 
+const acConnectFlow = new ConnectFlow(
+  components,
+  world,
+  projectElements,
+  ductDrawingTool,
+  viewport,
+  {
+    id: "ac",
+    deviceColor: 0x38bdf8,
+    targetColor: 0xfbbf24,
+    isValidDevice: (elem: any) => elem.type === "ac" || elem.type === "ac_ceiling" || elem.type === "vrv_outdoor",
+    isValidTarget: (elem: any) => {
+      const selectedId = (window as any).__acConnectTargetId;
+      const device = selectedId ? projectElements.find((e: any) => e.id === selectedId) : null;
+      if (device?.type === "vrv_outdoor") {
+        return elem.type === "ac" || elem.type === "ac_ceiling";
+      }
+      return (elem.type === "pipe" && !!elem.pairId) || elem.type === "vrv_outdoor";
+    },
+    collectDeviceMeshes: () => collectMeshesByType(["ac", "ac_ceiling", "vrv_outdoor"]),
+    collectTargetMeshes: () => {
+      const selectedId = (window as any).__acConnectTargetId;
+      const device = selectedId ? projectElements.find((e: any) => e.id === selectedId) : null;
+      if (device?.type === "vrv_outdoor") {
+        return collectMeshesByType(["ac", "ac_ceiling"]);
+      }
+      return [...collectConnectablePipeMeshes(), ...collectMeshesByType("vrv_outdoor")];
+    },
+    tooltipPhaseTexts: {
+      title1: "Подключение кондиционера",
+      action1: "Кликните блок кондиционера / VRV",
+      hoverAction1: "Выбрать блок кондиционера или VRV блок",
+      detail1: "Выберите блок кондиционера или наружный VRV блок для подключения.",
+      deviceLabel: "ac/vrv",
+      title2: "Сборка трассы кондиционера",
+      action2: "Кликните цель подключения",
+      hoverAction2: "Врезать рефнеты или подключить блок к VRV",
+      detail2: "Выберите двухтрубную магистраль или соответствующий блок для соединения систем.",
+      footer1: "кондиционер",
+      footer2: "кондиционер"
+    },
+    connect: (elements: any[], device: any, target: any) => {
+      if (device.type === "vrv_outdoor") {
+        return ConnectionNodes.connect(elements, device, target);
+      }
+      if (target.type === "vrv_outdoor") {
+        return ConnectionNodes.connect(elements, target, device);
+      }
+      return ConnectionNodes.connect(elements, device, target);
+    },
+  }
+);
+
+(window as any).radiatorConnectFlow = radiatorConnectFlow;
+(window as any).terminalConnectFlow = terminalConnectFlow;
+(window as any).acConnectFlow = acConnectFlow;
 // Глобальный обработчик: Delete/Backspace — удаление выбранного элемента
 window.addEventListener("keydown", (event) => {
   if (event.code !== "Delete" && event.code !== "Backspace") return;
@@ -787,7 +699,9 @@ window.addEventListener("keydown", (event) => {
     window.dispatchEvent(new CustomEvent("flow-state-changed", { detail: { ...(window as any).__flowMode } }));
   }
   if (isolatedSystemId) setSystemIsolation(null); // Escape снимает и изоляцию системы
-  clearRadiatorConnectMode();
+  window.dispatchEvent(new CustomEvent("radiator-connect-stop"));
+  window.dispatchEvent(new CustomEvent("terminal-connect-stop"));
+  window.dispatchEvent(new CustomEvent("ac-connect-stop"));
 });
 
 // Изоляция системы в основном виде (событие из вкладки «Системы»).
@@ -1074,64 +988,7 @@ viewport.addEventListener("pointerdown", (event) => {
     return;
   }
 
-  if (radiatorConnectToolActive) {
-    if (event.button !== 0) return;
 
-    const dom = world.renderer?.three.domElement;
-    if (!dom) return;
-
-    const rect = dom.getBoundingClientRect();
-    selectionMouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    selectionMouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    selectionRaycaster.setFromCamera(selectionMouse, world.camera.three);
-
-    if (!radiatorConnectTarget) {
-      const intersects = selectionRaycaster.intersectObjects(collectRadiatorMeshes(), true);
-      if (intersects.length === 0) {
-        console.warn("Выберите радиатор для серийного подключения.");
-        return;
-      }
-
-      const pickedRadiator = getCustomElementFromObject(intersects[0].object);
-      if (pickedRadiator?.type !== "radiator") {
-        console.warn("Выбранный элемент не является радиатором.");
-        return;
-      }
-
-      setRadiatorConnectTarget(pickedRadiator);
-      return;
-    }
-
-    const pipeMeshes = collectConnectablePipeMeshes();
-    const intersects = selectionRaycaster.intersectObjects(pipeMeshes, true);
-    if (intersects.length === 0) {
-      console.warn("Выберите трубу двухтрубной магистрали для подключения радиатора.");
-      return;
-    }
-
-    const pickedPipe = getCustomElementFromObject(intersects[0].object);
-    if (!pickedPipe?.pairId) {
-      console.warn("Выбранная труба не является частью двухтрубной пары.");
-      return;
-    }
-
-    const result = ConnectionNodes.connectRadiatorLower(projectElements, radiatorConnectTarget, pickedPipe);
-    if (!result.ok) {
-      console.warn(result.error || "Не удалось подключить радиатор.");
-      return;
-    }
-
-    const updated = FittingGenerator.generateFittings(projectElements);
-    projectElements.length = 0;
-    projectElements.push(...updated);
-
-    restoreHighlightMap(radiatorPipeHighlights);
-    restoreHighlightMap(radiatorTargetHighlights);
-    ductDrawingTool.renderAll(projectElements);
-    window.dispatchEvent(new CustomEvent("elements-updated"));
-    rearmRadiatorConnectMode();
-    return;
-  }
 
   const ductTool = (window as any).ductDrawingTool;
   const wallTool = (window as any).wallDrawingTool;

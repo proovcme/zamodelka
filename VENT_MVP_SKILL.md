@@ -69,6 +69,10 @@ python3 -m server.main          # uvicorn на 127.0.0.1:8000, reload=True
 ```bash
 npm run dev        # vite --host
 ```
+⚠️ Нужен **настоящий node** (nvm/homebrew). На Mac mini node не в PATH у не-логин SSH —
+запускай из логин-окружения. НЕ через «electron-as-node» (node от VS Code/Antigravity):
+vite падает на нативном `@rollup/rollup-darwin-arm64` (`ERR_DLOPEN_FAILED`, разные Team ID
+подписи — Electron не грузит чужой `.node`). tsc им гонять можно, vite — нет.
 
 ### Проверка изменений
 - `npx tsc --noEmit` — типы (быстро, обязательно).
@@ -204,13 +208,109 @@ vent_mvp.db                       # SQLite БД (в корне)
   (`radiator`/`ac`/`ac_ceiling`/`equipment`/`terminal`). Иначе `systemId` не ставится.
 - **Нумерация:** отопление+вентиляция+кондиционирование = единый раздел, префикс **«ОВ»**,
   СКВОЗНОЙ счётчик (ОВ1, ОВ2, ОВ3…), по порядку (стабильная сортировка по min id). Электрика
-  (лотки) → «ЭО». Тип (heating/ventilation/conditioning) — для подписи, не для префикса.
+  (лотки) → «ЭО», прочее → «С». Тип (heating/ventilation/conditioning) — для подписи, не префикса.
+  ⚠️ Докстринг в `SystemManager/index.ts` (стр.6-7) ВРЁТ — пишет «ХС1/П1/В1», но реальный
+  `detectType` выдаёт ОВ/ЭО/С. Верь коду, а не комментарию.
 - **Где живёт:** `SystemManager.rebuild(projectElements)` вызывается в `main.ts` на
   `elements-updated`, кладёт реестр в `window.__projectSystems`, шлёт `systems-updated`.
   Вкладка «Системы» (`sections/systems.ts`, нижний блок) читает реестр; ручные имена —
   `window.__systemCustomNames[systemId]`.
 - **TODO (в ТЗ §20):** FR-SYS-3 схема-аксонометрия (кнопка «Схема» шлёт `system-isolate`,
   обработчика пока нет), FR-SYS-4 полировка флоу подключения.
+
+### 5.7 Flow-движок (дисциплины декларативно)
+Flow-mode по дисциплинам (architecture/ventilation/heating/plumbing/electrical) рендерится из
+ОДНОГО декларативного реестра **`flowDisciplines`** в `viewer-toolbar.ts` — НЕ из `if(discipline)`.
+```ts
+const flowDisciplines: FlowDisciplineDef[] = [
+  { id, icon, title, actions: [{ icon, label, active, onClick }, …] }, …
+];
+// rootDock = flowDisciplines.map(disciplineButton)
+// renderActions() = flowDisciplines.find(active).actions.map(actionButton)
+```
+**Добавить дисциплину или инструмент = одна запись в массиве.** Никаких ветвлений по коду.
+Состояние: `window.__flowMode = {activeDiscipline, drawerOpen}`, события `flow-discipline-enter/exit`,
+`flow-state-changed`.
+
+### 5.8 Движок узлов подключения (ConnectionNodes) — единая логика
+Единая точка `ConnectionNodes.connect(elements, device, target)` — диспетчер по `device.type`.
+Новый типовой узел = один `case` + builder, БЕЗ правок вызывающего кода (`main.ts` зовёт `connect`).
+- **2-портовые приборы** (`radiator`/`ac`/`ac_ceiling`/`equipment`) → ОДИН builder
+  `connectDeviceToPipePair`: режет пару труб магистрали в точках врезки (настоящие T-узлы для
+  `FittingGenerator`) + строит подводки к портам. Порты — таблица `DEVICE_PORTS` (синхрон с
+  SystemManager). `connectRadiatorLower` — тонкий wrapper (совместимость).
+- **`terminal` (диффузор/решётка) → воздуховод** → `connectTerminalToDuct`: режет воздуховод +
+  **гибкий флекс ≤ 500 мм** (round `kind:"flex"`) к прибору.
+- **`socket` (розетка) → `panel` (щит)** → `connectSocketToPanel`: кабель идёт **ПО ЛОТКАМ**, не
+  напрямую. Граф лотков (`buildTrayGraph`, сварка концов по сетке 10 мм) + **Дейкстра** →
+  полилиния `socket → вход → [лотки] → выход → щит`. Элемент `{type:"cable", points:[…]}`
+  рендерится тонкой трубой (янтарь) в `DuctDrawingTool.renderAll`. Нет/несвязные лотки → fallback
+  прямой кабель. Геометрию маршрута подтверждать ВИЗУАЛЬНО.
+- Принцип заказчика: фикс-библиотека узлов с ОГРАНИЧЕННЫМИ параметрами, БЕЗ генерации на лету;
+  цель подключения — куда УКАЗАЛ пользователь (как у диффузоров), а не авто-поиск.
+- **Долг/TODO (модульно!):** UI connect-флоу для `radiator` и `terminal` — два почти одинаковых
+  блока в `main.ts` (~400 строк зеркального стейта). Перед добавлением UI для `socket` их надо
+  СНАЧАЛА свести в ОДИН параметризованный движок флоу (config: device-фаза → target-фаза →
+  `connect`), как `flowDisciplines` в тулбаре. Третья копия = «куски кода ради кусков кода».
+
+#### 5.8.1 Connect-флоу в `main.ts` — КАК РАБОТАТЬ С ЭТИМ УЖАСОМ
+`ConnectionNodes` (§5.8) — это только МАТЕМАТИКА узла. Вторая половина — **UI-стейт-машина в
+`main.ts`**, которая водит пользователя «выбери прибор → выбери цель → подключил». Сейчас она
+СКОПИРОВАНА дважды (radiator + terminal), отсюда «ужас». Понимай её как ОДИН паттерн, повторённый
+два раза; различаются только: тип прибора, тип цели, цвета/тексты, collect-фильтр.
+
+**Двухфазный жизненный цикл (на примере radiator, у terminal — 1:1 то же):**
+1. Событие `radiator-connect-toggle`/`-start{detail.radiator}` → `activateRadiatorConnectMode()`:
+   `radiatorConnectToolActive=true`, подсветить ВСЕ приборы-кандидаты (`highlightRadiatorTargets`),
+   слать `radiator-connect-started`.
+2. `mousedown`, фаза 1 (`!radiatorConnectTarget`): рейкаст по `collectRadiatorMeshes()` → выбран
+   прибор → `setRadiatorConnectTarget(rad)` → погасить подсветку приборов, подсветить трубы
+   (`highlightCompatiblePipes`).
+3. `mousedown`, фаза 2 (есть target): рейкаст по `collectConnectablePipeMeshes()` → выбрана труба
+   → **`ConnectionNodes.connect(projectElements, target, pickedPipe)`** → `FittingGenerator`
+   → `ductDrawingTool.renderAll` → `elements-updated` → `rearmRadiatorConnectMode()` (снова фаза 1,
+   для серийного подключения). См. §17.14 — порядок после `connect` обязателен.
+4. ESC / повторный toggle / смена инструмента → `clearRadiatorConnectMode()` (гасит подсветку,
+   снимает tooltip, шлёт `-cancelled`).
+
+**Что ДУБЛИРУЕТСЯ на каждую дисциплину (ищи по префиксу `radiator`/`terminal`):**
+- Стейт (module-level): `XConnectToolActive`, `XConnectTarget`, `XConnectTooltip`, две Map
+  подсветки `XTargetHighlights` + `X{Pipe|Duct}Highlights`.
+- Функции (зеркальные, отличаются ТОЛЬКО collect-фильтром и цветом — у highlight'ов цвета вообще
+  ОДИНАКОВЫЕ `0x38bdf8`/`0xfbbf24`): `ensure/hide/remove/showXConnectTooltip`,
+  `getXConnectHoverElement`, `updateXConnectCursor`, `updateXConnectState`, `collect*Meshes`,
+  `highlightXTargets`/`highlightCompatibleY`, `clear/set/activate/rearmXConnectMode`.
+- Ветка в общем `mousedown`-обработчике (`if (XConnectToolActive) { … }`).
+- События на `window`: вход `X-connect-start|toggle|stop`, выход `X-connect-started|changed|cancelled`.
+
+**Если ПРОСТО надо поправить существующий флоу** — правь обе копии синхронно (иначе разъедутся).
+**Если надо ДОБАВИТЬ дисциплину (кондеи/розетки)** — НЕ копируй третий раз (запрет, §17.15).
+Цель-рефактор (ТЗ §23 FR-PLACE-2): один `ConnectFlow`, конфиг на дисциплину
+`{deviceType, targetType, collectDevice, collectTarget, deviceColor, targetColor, phaseTexts}`,
+внутри — общий двухфазный автомат, вызывающий `ConnectionNodes.connect`. Подсветка/коллект/tooltip
+параметризуются (они уже идентичны). Тогда кондей = одна строка конфига, как `flowDisciplines`.
+
+### 5.9 Движок листов ГОСТ (`ui-templates/sheets/`)
+Отдельный движок: `getGostSheetLayout(format, standard, orientation)` + `renderGostSheetSvg(opts)`.
+Форматы A4/A3/A2/A1/A0, ориентация `landscape`/`portrait` (A4 по умолчанию книжно), штампы
+СПДС(форма 3)/ЕСКД(форма 1). Схема системы (аксонометрия) рендерится в `systems.ts` через
+**фронтальную изометрию (ГОСТ 2.317)**: длина X — горизонтально, высота Y — вертикально,
+глубина Z — под 45°. «Кидать новые шаблоны схем» = добавлять рендереры контента в этот движок.
+
+### 5.10 Отметки/уровни размещения (currentElevation)
+Глобальная отметка черчения/размещения — `currentElevation` (мм) в `viewer-toolbar.ts`.
+`applyElevationToTools()` (~стр.702) рассылает `setElevation(currentElevation)` ВСЕМ инструментам
+(`duct/wall/equipment/tray/pipe/electrical/terminal/accessory/twoPipe`). Уровни —
+`window.projectLevels` (map имя→мм); смена уровня/отметки = событие `elevation-updated`
+(`{detail:{elevation}}`). Инструмент размещения строит плоскость по `this.elevation` (пример —
+`TerminalPlacementTool`, плоскость `y = elevation/1000`). **Дыра:** нижняя секция тулбара при
+размещении оконечки/кондея не показывает селектор уровня/отметки — см. ТЗ §23 FR-PLACE-1.
+
+### 5.11 Хендофф для Гемини — см. `TZ_FIELD_SKETCH.md` §23
+Порядок задач: **FR-PLACE-1** (UI отметки/уровня для размещения) → **FR-PLACE-2** (свести
+radiator/terminal connect-флоу в ОДИН движок `ConnectFlow`) → **FR-CONNECT-AC** (кондеи через тот
+же движок, builder готов) → **FR-VRV** (внешний блок `vrv_outdoor` + фреоновый узел + VRV-система).
+Принцип: никаких третьих копий connect-флоу — только конфиг в едином движке.
 
 ---
 
@@ -316,9 +416,17 @@ Three.js меши, поэтому выбор реализован **вручну
    - **2 воздуховода соосно, но разное сечение/форма** → **переход (reducer)**.
      Разная форма (`round`↔`rectangular`) → переход «прямоугольник‑круг».
    - **3 воздуховода** → **тройник (tee)** (размер по наибольшему).
-3. Возвращает `[...ducts, ...newFittings, ...terminals, ...equipment]` — старые
-   автогенерированные фасонные **отбрасываются** и пересоздаются. Поэтому не храни в
-   фитингах ручные правки — они исчезнут при следующей генерации.
+3. Возвращает `[...ducts, ...trays, ...pipes, ...newFittings, ...others]`, где
+   **`others` = ВСЁ остальное** (стены, двери, окна, светильники, щиты, радиаторы, розетки,
+   кабели, терминалы, оборудование, рабочие места…) — пробрасывается фильтром
+   `type !== duct/tray/pipe/fitting`. Старые автогенерированные фасонные отбрасываются и
+   пересоздаются (ручные правки в фитингах исчезнут).
+   ⚠️ **КРИТИЧНО (на этом Гемини уронил всё — коммит `4b2acd1`):** `generateFittings` —
+   ТОТАЛЬНАЯ функция по типам. Если она забывает пробросить какой-то тип (раньше
+   возвращала только `ducts+fittings+terminals+equipment`), то ВСЕ двери/окна/щиты/
+   радиаторы/розетки **молча исчезают** при первом же добавлении элемента. Добавил новый
+   `type`? Убедись, что он попадает в `others` (он попадёт автоматически, если не
+   перечислен в исключениях фильтра) и **проверь, что фильтр исключений не оброс лишним**.
 
 ---
 
@@ -385,8 +493,16 @@ pointermove — при загруженном IFC «Длина/Площадь/С
 - **Круглый отвод:** `createRoundElbow(node, dirA, dirB, radius)` — `TubeGeometry` по
   `QuadraticBezierCurve3` через точки `node±dir*off` с контролем в узле. Гладкий гиб.
   Геометрия строится в МИРОВЫХ координатах, меш стоит в `(0,0,0)`.
-- **Прямоугольный отвод:** `createRectElbow` — короб, развёрнутый по биссектрисе
-  `dirA+dirB` (ось +Z → биссектриса).
+- **Прямоугольный отвод:** `createRectElbow` — гладкая ПРОТЯЖКА сечения `w×h` вручную
+  (`BufferGeometry`) по дуге `QuadraticBezierCurve3` через `node±dir*off`. Сечение
+  ориентируется ЯВНЫМ фреймом на каждом сегменте: `right = worldUp × tangent`,
+  `up = tangent × right` (worldUp=(0,1,0)) — поэтому `w` всегда горизонтальна, `h`
+  вертикальна. `off = max(max(w,h)*1.2, 0.15)` и ОБЯЗАН совпадать с укорачиванием в
+  `getShortenedEndpoints` (иначе зазор/наезд на торцы каналов). Материал → `DoubleSide`.
+  ⚠️ **Так сделано не от хорошей жизни:** ExtrudeGeometry/`TubeGeometry`/Frenet-фрейм
+  крутят профиль (TBN перекатывается на дуге) и меняют местами `w↔h` — это чинилось
+  тремя коммитами подряд. НЕ «упрощай» обратно к ExtrudeGeometry или «коробу по
+  биссектрисе» — твист вернётся. То же относится к лоткам (`tray` зовёт тот же метод).
 - **Переход «квадрат‑в‑круг»:** `createSquareToRound(node, axisToRound, w, h, d, length)` —
   кастомная `BufferGeometry`: два кольца по 32 сегмента (прямоугольный торец на `-Z/2`,
   круглый на `+Z/2`), соединённые квадами. Угловое соответствие точек: точка окружности
@@ -546,6 +662,41 @@ CORS открыт (`*`). БД — SQLite `vent_mvp.db` (создаётся и с
 11. **Не клади IFC-фрагменты в `world.meshes`** (`rebuildWorldMeshes`) — у них GPU-геометрия
     без `position.array`, OBC-рейкастер измерений/сечения на них падает → Length/Area/Clipper
     перестают работать при загруженном IFC. Фильтруй по `position.array` (§11.2). Починено.
+12. **Не делай прямоугольный отвод/лоток через `ExtrudeGeometry`/`TubeGeometry`/Frenet и не
+    «по биссектрисе»** — профиль крутится, `w↔h` меняются местами. Только ручная протяжка с
+    явным `worldUp`-фреймом, `off` синхронен `getShortenedEndpoints` (§12). Чинилось 3 коммита.
+13. **Не меняй `DEVICE_PORTS`/локальные порты прибора в одном месте** — координаты портов
+    дублируются (синхрон `ConnectionNodes` ↔ `SystemManager` ↔ `DuctDrawingTool` ↔ `TwoPipe`).
+    Поменял в одном — поменяй везде, иначе подводки/системы разъедутся (§5.8).
+14. **Connect-builders (`ConnectionNodes.*`) МУТИРУЮТ массив `elements` на месте** (режут трубы,
+    удаляют старые подводки). После `connect(...)` ОБЯЗАТЕЛЬНО прогони
+    `FittingGenerator.generateFittings` → подмени `projectElements` → `renderAll` →
+    `elements-updated` (как в `main.ts`). Иначе узлы/спецификация/3D разойдутся.
+15. **Не плоди третью копию connect-флоу** под кондеи/розетки — `radiator`/`terminal` уже два
+    зеркальных блока в `main.ts`; новые дисциплины только через единый движок (§5.8 «Долг»,
+    ТЗ §23 FR-PLACE-2). Это прямое требование заказчика «единая флоу логика».
+
+---
+
+## 17-bis. Инциденты «уронил всё» по СИМПТОМУ (диагностика с конца)
+
+Когда что-то сломалось — ищи по тому, что ВИДИШЬ на экране, а не по тому, что менял.
+Все эти случаи уже происходили и починены; не возвращай как было.
+
+| Что видишь | Настоящая причина | Где |
+|---|---|---|
+| **Двери/окна/щиты/радиаторы исчезли** после добавления элемента | `FittingGenerator.generateFittings` не пробросил их тип (не тотальная функция) | §10 ⚠️ |
+| **Чёрный экран + лавина WebGL `zero size`** | `<bim-grid>` завёрнут в `<div>` → `grid.layouts` undefined → вьюпорт 0×0 (WebGL — следствие!) | §14.5 |
+| **Панель свойств показывает «Selection Data» вместо свойств** (в логах всё ок) | grid-панель вернула ДВА разных `BUI.html` → lit отсоединил корень от слота | §14.1 |
+| **Текст чёрный на чёрном / спецификация нечитаема** | `--bim-ui_bg-contrast-90/70/50/0` — пустые → чёрный | §14.2 |
+| **Измерения/сечение (Length/Area/Clipper) перестали работать при IFC** | IFC-фрагменты попали в `world.meshes`; рейкастер падает на GPU-геометрии без `position.array` | §11.2 |
+| **Черчение «замерзает» рядом с IFC** | безусловный рейкаст fragments на mousemove падает | §11.1 |
+| **У прямоугольного отвода/лотка перепутаны ширина/высота, профиль крутит** | `ExtrudeGeometry`/Frenet вместо ручной протяжки с `worldUp` | §12 ⚠️ |
+| **Подводки/системы «разъехались» после правки портов** | `DEVICE_PORTS` поменян в одном из 4 мест | §17.13 |
+
+Общий принцип под этот проект: **3D/UE-результат не виден в коде** — почти каждая поломка
+тут «логика верная, но нарушена негласная конвенция движка». Поэтому правило §16: проверка
+ТОЛЬКО в браузере, а не «выглядит правильно».
 
 ---
 

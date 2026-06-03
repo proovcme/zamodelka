@@ -1,4 +1,7 @@
+// Базовые размеры форматов по ГОСТ 2.301 (мм), хранятся в АЛЬБОМНОЙ ориентации
+// (для A4 «природная» ориентация — книжная 210×297, см. ниже выбор orientation).
 export const GOST_SHEET_FORMATS = {
+  A4: { width: 297, height: 210 },
   A3: { width: 420, height: 297 },
   A2: { width: 594, height: 420 },
   A1: { width: 841, height: 594 },
@@ -7,7 +10,7 @@ export const GOST_SHEET_FORMATS = {
 
 export type GostSheetFormat = keyof typeof GOST_SHEET_FORMATS;
 export type GostSheetStandard = "SPDS" | "ESKD";
-export type GostSheetOrientation = "landscape";
+export type GostSheetOrientation = "landscape" | "portrait";
 
 export interface GostSheetLayout {
   format: GostSheetFormat;
@@ -40,6 +43,7 @@ export interface GostSheetMeta {
 export interface GostSheetRenderOptions {
   format: GostSheetFormat;
   standard: GostSheetStandard;
+  orientation?: GostSheetOrientation;
   meta: GostSheetMeta;
   content: string;
   legend?: string;
@@ -74,8 +78,15 @@ const escapeXml = (value: unknown) =>
 export function getGostSheetLayout(
   format: GostSheetFormat,
   standard: GostSheetStandard = "SPDS",
+  orientation: GostSheetOrientation = "landscape",
 ): GostSheetLayout {
-  const size = GOST_SHEET_FORMATS[format];
+  const base = GOST_SHEET_FORMATS[format];
+  // По ГОСТ A4 применяется книжно (штамп вдоль короткой стороны). Для остальных —
+  // альбомно по умолчанию; orientation позволяет развернуть любой формат.
+  const wantPortrait = orientation === "portrait";
+  const width = wantPortrait ? Math.min(base.width, base.height) : Math.max(base.width, base.height);
+  const height = wantPortrait ? Math.max(base.width, base.height) : Math.min(base.width, base.height);
+  const size = { width, height };
   const outer = { x: 0, y: 0, w: size.width, h: size.height };
   const frame = {
     x: LEFT_MARGIN,
@@ -105,7 +116,7 @@ export function getGostSheetLayout(
   return {
     format,
     standard,
-    orientation: "landscape",
+    orientation,
     width: size.width,
     height: size.height,
     outer,
@@ -117,7 +128,10 @@ export function getGostSheetLayout(
 }
 
 export function renderGostSheetSvg(options: GostSheetRenderOptions) {
-  const layout = getGostSheetLayout(options.format, options.standard);
+  // A4 по умолчанию книжно, прочие — альбомно (если не задано явно).
+  const orientation: GostSheetOrientation =
+    options.orientation ?? (options.format === "A4" ? "portrait" : "landscape");
+  const layout = getGostSheetLayout(options.format, options.standard, orientation);
   const className = options.className || "gost-sheet-svg system-scheme-paper";
   const meta: Required<GostSheetMeta> = {
     objectName: options.meta.objectName || "Объект строительства",

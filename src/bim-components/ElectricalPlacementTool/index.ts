@@ -5,8 +5,8 @@ import { SmartSnap } from "../SmartSnap";
 
 export interface ElectricalElement {
   id: string;
-  type: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column";
-  kind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column";
+  type: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column" | "vrv_outdoor";
+  kind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column" | "vrv_outdoor";
   model: string;
   position: [number, number, number]; // в мм
   normal?: [number, number, number];
@@ -21,7 +21,7 @@ export class ElectricalPlacementTool {
   world: OBC.World;
 
   enabled = false;
-  activeKind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column" = "socket";
+  activeKind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column" | "vrv_outdoor" = "socket";
 
   projectElements: any[] = [];
   onElementsUpdated: () => void = () => {};
@@ -50,7 +50,7 @@ export class ElectricalPlacementTool {
     this.mousePlane.constant = -(elev / 1000);
   }
 
-  activate(kind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column" = "socket") {
+  activate(kind: "socket" | "panel" | "light" | "door" | "window" | "ac" | "radiator" | "ac_ceiling" | "toilet" | "sink" | "workstation" | "column" | "vrv_outdoor" = "socket") {
     if (this.enabled && this.activeKind === kind) return;
 
     if (this.enabled) this.deactivate();
@@ -138,6 +138,9 @@ export class ElectricalPlacementTool {
     } else if (this.activeKind === "column") {
       geom = new THREE.BoxGeometry(0.4, 3.0, 0.4); // Г x В x Ш
       color = 0x9ca3af; // серый
+    } else if (this.activeKind === "vrv_outdoor") {
+      geom = new THREE.BoxGeometry(0.8, 1.6, 1.0);
+      color = 0xe2e8f0;
     } else { // ac
       geom = new THREE.BoxGeometry(0.22, 0.28, 0.85);
       color = 0xf1f5f9;
@@ -288,6 +291,8 @@ export class ElectricalPlacementTool {
           this.previewMesh.position.y += 0.3;
         } else if (this.activeKind === "column") {
           this.previewMesh.position.y += 1.5;
+        } else if (this.activeKind === "vrv_outdoor") {
+          this.previewMesh.position.y += 0.8;
         }
 
         this.previewMesh.rotation.y = this.rotationAngle;
@@ -428,6 +433,15 @@ export class ElectricalPlacementTool {
         kind: "column",
         model: "Колонна железобетонная 400x400",
         position: [this.lastSnappedPoint.x * 1000, (this.lastSnappedPoint.y + 1.5) * 1000, this.lastSnappedPoint.z * 1000],
+        rotation: Math.round(this.rotationAngle * (180 / Math.PI)),
+      };
+    } else if (this.activeKind === "vrv_outdoor") {
+      newElem = {
+        id,
+        type: "vrv_outdoor",
+        kind: "vrv_outdoor",
+        model: "Наружный блок VRV",
+        position: [this.lastSnappedPoint.x * 1000, (this.lastSnappedPoint.y + 0.8) * 1000, this.lastSnappedPoint.z * 1000],
         rotation: Math.round(this.rotationAngle * (180 / Math.PI)),
       };
     } else { // light

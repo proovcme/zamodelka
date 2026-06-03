@@ -53,13 +53,16 @@ const buildSystemSchemeSvg = (
   const yValues = points.map((p) => Number(p[1] || 0));
   const ySpan = Math.max(...yValues) - Math.min(...yValues);
   const yToMm = horizontalSpan > 50 && ySpan > 0 && ySpan < 20 ? 1000 : 1;
+  // Фронтальная изометрия (ГОСТ 2.317): длина X — горизонтально, высота Y — вертикально,
+  // глубина Z — под 45° вверх-вправо с сокращением 0.5 (фронтальная плоскость не искажается).
+  const DEPTH = 0.5 * Math.SQRT1_2; // ≈ 0.354
   const project = (p: number[]) => {
     const x = Number(p[0] || 0);
     const y = Number(p[1] || 0) * yToMm;
     const z = Number(p[2] || 0);
     return {
-      x: x + z * 0.52,
-      y: z * 0.30 - y,
+      x: x + z * DEPTH,
+      y: -y - z * DEPTH,
       rawY: y,
     };
   };

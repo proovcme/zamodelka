@@ -74,6 +74,9 @@ export class TwoPipeDrawingTool extends BaseLineTool {
     } else if (elem.type === "ac_ceiling") {
       localSupply = [370, 150, -50];
       localReturn = [370, 150, 50];
+    } else if (elem.type === "vrv_outdoor") {
+      localSupply = [-400, 200, 200];
+      localReturn = [-400, 200, -200];
     }
 
     if (!localSupply || !localReturn) return null;

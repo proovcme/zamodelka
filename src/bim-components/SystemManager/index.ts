@@ -25,13 +25,14 @@ export interface SystemInfo {
 }
 
 const ROUTE_TYPES = new Set(["pipe", "duct", "tray"]);
-const DEVICE_TYPES = new Set(["radiator", "ac", "ac_ceiling", "equipment", "terminal"]);
+const DEVICE_TYPES = new Set(["radiator", "ac", "ac_ceiling", "equipment", "terminal", "vrv_outdoor"]);
 // Локальные координаты портов приборов (мм) — в синхроне с TwoPipeDrawingTool.getEquipmentPorts
 const PORT_LOCALS: Record<string, { supply: number[]; return: number[] }> = {
   equipment: { supply: [600, 0, 0], return: [-600, 0, 0] },
   radiator: { supply: [50, -250, 310], return: [50, -250, 360] },
   ac: { supply: [110, -100, 150], return: [110, -100, 200] },
   ac_ceiling: { supply: [370, 150, -50], return: [370, 150, 50] },
+  vrv_outdoor: { supply: [-400, 200, 200], return: [-400, 200, -200] },
 };
 // Номинальный объём приборов, м³ (заглушка — «номинал»)
 const DEVICE_NOMINAL_VOLUME: Record<string, number> = {
@@ -40,6 +41,7 @@ const DEVICE_NOMINAL_VOLUME: Record<string, number> = {
   ac_ceiling: 0.02,
   equipment: 0.2,
   terminal: 0.001,
+  vrv_outdoor: 0.1,
 };
 
 export class SystemManager {

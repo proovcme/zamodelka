@@ -420,20 +420,76 @@ export class DuctDrawingTool extends BaseLineTool {
           this.ductsGroup.add(mesh);
         }
         else if (elem.kind === "tee") {
-          let geom: THREE.BufferGeometry;
+          let mesh: THREE.Object3D;
           if (systemType === "duct") {
             const isRect = elem.size?.w !== undefined;
-            geom = isRect
-              ? new THREE.BoxGeometry((elem.size.w / 1000) * 1.05, (elem.size.h / 1000) * 1.05, (elem.size.w / 1000) * 1.05)
-              : new THREE.SphereGeometry(((elem.size?.d || 200) / 2 / 1000) * 1.1, 16, 16);
+            if (isRect && c.length === 3) {
+              mesh = this.createRectTee(
+                nodePt,
+                dirAwayFromNode(c[0]),
+                dirAwayFromNode(c[1]),
+                dirAwayFromNode(c[2]),
+                elem.size.w / 1000,
+                elem.size.h / 1000,
+                mat
+              );
+            } else if (!isRect && c.length === 3) {
+              const radius = (elem.size?.d || 200) / 2 / 1000;
+              mesh = this.createRoundTee(
+                nodePt,
+                dirAwayFromNode(c[0]),
+                dirAwayFromNode(c[1]),
+                dirAwayFromNode(c[2]),
+                radius,
+                mat
+              );
+            } else {
+              const geom = isRect
+                ? new THREE.BoxGeometry((elem.size.w / 1000) * 1.05, (elem.size.h / 1000) * 1.05, (elem.size.w / 1000) * 1.05)
+                : new THREE.SphereGeometry(((elem.size?.d || 200) / 2 / 1000) * 1.1, 16, 16);
+              const m = new THREE.Mesh(geom, mat);
+              m.position.copy(nodePt);
+              mesh = m;
+            }
           } else if (systemType === "pipe") {
-            geom = new THREE.SphereGeometry(((elem.size?.d || 25) / 2 / 1000) * 1.25, 16, 16);
+            if (c.length === 3) {
+              const radius = (elem.size?.d || 25) / 2 / 1000;
+              mesh = this.createRoundTee(
+                nodePt,
+                dirAwayFromNode(c[0]),
+                dirAwayFromNode(c[1]),
+                dirAwayFromNode(c[2]),
+                radius,
+                mat
+              );
+            } else {
+              const geom = new THREE.SphereGeometry(((elem.size?.d || 25) / 2 / 1000) * 1.25, 16, 16);
+              const m = new THREE.Mesh(geom, mat);
+              m.position.copy(nodePt);
+              mesh = m;
+            }
           } else { // tray
-            geom = new THREE.BoxGeometry((elem.size.w / 1000) * 1.1, (elem.size.h / 1000) * 1.1, (elem.size.w / 1000) * 1.1);
+            if (c.length === 3) {
+              mesh = this.createRectTee(
+                nodePt,
+                dirAwayFromNode(c[0]),
+                dirAwayFromNode(c[1]),
+                dirAwayFromNode(c[2]),
+                elem.size.w / 1000,
+                elem.size.h / 1000,
+                mat
+              );
+            } else {
+              const geom = new THREE.BoxGeometry((elem.size.w / 1000) * 1.1, (elem.size.h / 1000) * 1.1, (elem.size.w / 1000) * 1.1);
+              const m = new THREE.Mesh(geom, mat);
+              m.position.copy(nodePt);
+              mesh = m;
+            }
           }
-          const mesh = new THREE.Mesh(geom, mat);
-          mesh.position.copy(nodePt);
           mesh.userData = { elementId: elem.id };
+          mesh.traverse((child) => {
+            child.userData.elementId = elem.id;
+          });
           this.ductsGroup.add(mesh);
         }
         else if (elem.kind === "reducer") {
@@ -597,6 +653,24 @@ export class DuctDrawingTool extends BaseLineTool {
         mesh.rotation.y = (elem.rotation * Math.PI) / 180;
         mesh.userData = { elementId: elem.id };
         this.ductsGroup.add(mesh);
+      }
+      else if (elem.type === "cable") {
+        // Кабель по лоткам (FR-ELEC): полилиния точек (мм) → тонкая труба.
+        const pts = (elem.points || []).map(
+          (p: number[]) => new THREE.Vector3(p[0] / 1000, p[1] / 1000, p[2] / 1000),
+        );
+        if (pts.length >= 2) {
+          const curve = new THREE.CatmullRomCurve3(pts, false, "catmullrom", 0.05);
+          const geom = new THREE.TubeGeometry(curve, Math.max(8, pts.length * 4), 0.008, 6, false);
+          const mat = new THREE.MeshStandardMaterial({
+            color: 0xf59e0b, // янтарный — кабельная линия
+            roughness: 0.6,
+            metalness: 0.1,
+          });
+          const mesh = new THREE.Mesh(geom, mat);
+          mesh.userData = { elementId: elem.id };
+          this.ductsGroup.add(mesh);
+        }
       }
       else if (elem.type === "light") {
         const pos = new THREE.Vector3(elem.position[0] / 1000, elem.position[1] / 1000, elem.position[2] / 1000);
@@ -885,6 +959,58 @@ export class DuctDrawingTool extends BaseLineTool {
         acCeilingGroup.rotation.y = (elem.rotation * Math.PI) / 180;
         
         this.ductsGroup.add(acCeilingGroup);
+      }
+      else if (elem.type === "vrv_outdoor") {
+        const pos = new THREE.Vector3(elem.position[0] / 1000, elem.position[1] / 1000, elem.position[2] / 1000);
+        
+        const vrvGroup = new THREE.Group();
+        vrvGroup.position.copy(pos);
+        
+        // 1. Корпус внешнего блока VRV (0.8 x 1.6 x 1.0 м)
+        const bodyGeom = new THREE.BoxGeometry(0.8, 1.6, 1.0);
+        const bodyMat = new THREE.MeshStandardMaterial({
+          color: 0xe2e8f0, // серый/белый slate-200
+          roughness: 0.4,
+          metalness: 0.3,
+        });
+        const bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
+        bodyMesh.userData = { elementId: elem.id };
+        vrvGroup.add(bodyMesh);
+
+        // 2. Два вентилятора на передней панели (Z = 0.5)
+        const fanGeom = new THREE.CylinderGeometry(0.35, 0.35, 0.02, 24);
+        const fanMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.6 });
+        
+        const fan1 = new THREE.Mesh(fanGeom, fanMat);
+        fan1.position.set(0, 0.35, 0.51);
+        fan1.rotation.x = Math.PI / 2;
+        fan1.userData = { elementId: elem.id };
+        vrvGroup.add(fan1);
+        
+        const fan2 = new THREE.Mesh(fanGeom, fanMat);
+        fan2.position.set(0, -0.35, 0.51);
+        fan2.rotation.x = Math.PI / 2;
+        fan2.userData = { elementId: elem.id };
+        vrvGroup.add(fan2);
+
+        // 3. Порты подключения (сферы)
+        const portGeom = new THREE.SphereGeometry(0.045, 16, 16);
+        const redPortMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.1, metalness: 0.9, emissive: 0x3d0000 });
+        const bluePortMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.1, metalness: 0.9, emissive: 0x00003d });
+
+        const supplyPort = new THREE.Mesh(portGeom, redPortMat);
+        supplyPort.position.set(-0.4, 0.2, 0.2);
+        supplyPort.userData = { elementId: elem.id, portType: "supply" };
+        vrvGroup.add(supplyPort);
+
+        const returnPort = new THREE.Mesh(portGeom, bluePortMat);
+        returnPort.position.set(-0.4, 0.2, -0.2);
+        returnPort.userData = { elementId: elem.id, portType: "return" };
+        vrvGroup.add(returnPort);
+
+        vrvGroup.rotation.y = (elem.rotation * Math.PI) / 180;
+
+        this.ductsGroup.add(vrvGroup);
       }
       else if (elem.type === "toilet") {
         const pos = new THREE.Vector3(elem.position[0] / 1000, elem.position[1] / 1000, elem.position[2] / 1000);
@@ -1452,6 +1578,111 @@ export class DuctDrawingTool extends BaseLineTool {
     const curve = new THREE.QuadraticBezierCurve3(pA, node.clone(), pB);
     const geom = new THREE.TubeGeometry(curve, 16, radius, 20, false);
     return new THREE.Mesh(geom, mat);
+  }
+
+  private createRoundTee(
+    center: THREE.Vector3,
+    v1: THREE.Vector3,
+    v2: THREE.Vector3,
+    v3: THREE.Vector3,
+    radius: number,
+    material: THREE.Material
+  ): THREE.Object3D {
+    const group = new THREE.Group();
+
+    // Identify main run and branch
+    const d12 = v1.dot(v2);
+    const d23 = v2.dot(v3);
+    const d31 = v3.dot(v1);
+
+    const runDir = new THREE.Vector3();
+    const branchDir = new THREE.Vector3();
+
+    const minDot = Math.min(d12, d23, d31);
+    if (minDot === d12) {
+      runDir.copy(v1);
+      branchDir.copy(v3);
+    } else if (minDot === d23) {
+      runDir.copy(v2);
+      branchDir.copy(v1);
+    } else {
+      runDir.copy(v3);
+      branchDir.copy(v2);
+    }
+
+    const D = radius * 2;
+    const L_run = D * 1.1; 
+    const L_branch = radius * 1.1;
+
+    // Main run
+    const runGeom = new THREE.CylinderGeometry(radius, radius, L_run, 16);
+    const runMesh = new THREE.Mesh(runGeom, material);
+    const alignRun = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), runDir);
+    runMesh.quaternion.copy(alignRun);
+    runMesh.position.copy(center);
+    group.add(runMesh);
+
+    // Branch
+    const branchGeom = new THREE.CylinderGeometry(radius, radius, L_branch, 16);
+    const branchMesh = new THREE.Mesh(branchGeom, material);
+    const alignBranch = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), branchDir);
+    branchMesh.quaternion.copy(alignBranch);
+    branchMesh.position.copy(center).addScaledVector(branchDir, L_branch / 2);
+    group.add(branchMesh);
+
+    return group;
+  }
+
+  private createRectTee(
+    center: THREE.Vector3,
+    v1: THREE.Vector3,
+    v2: THREE.Vector3,
+    v3: THREE.Vector3,
+    w: number,
+    h: number,
+    material: THREE.Material
+  ): THREE.Object3D {
+    const group = new THREE.Group();
+
+    const d12 = v1.dot(v2);
+    const d23 = v2.dot(v3);
+    const d31 = v3.dot(v1);
+
+    const runDir = new THREE.Vector3();
+    const branchDir = new THREE.Vector3();
+
+    const minDot = Math.min(d12, d23, d31);
+    if (minDot === d12) {
+      runDir.copy(v1);
+      branchDir.copy(v3);
+    } else if (minDot === d23) {
+      runDir.copy(v2);
+      branchDir.copy(v1);
+    } else {
+      runDir.copy(v3);
+      branchDir.copy(v2);
+    }
+
+    const L_run = w * 1.05; 
+    const L_branch = w * 0.525;
+
+    // Main run
+    const runGeom = new THREE.BoxGeometry(w, h, L_run);
+    const runMesh = new THREE.Mesh(runGeom, material);
+    const alignRun = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), runDir);
+    runMesh.quaternion.copy(alignRun);
+    runMesh.position.copy(center);
+    group.add(runMesh);
+
+    // Branch
+    const branchGeom = new THREE.BoxGeometry(w, h, L_branch);
+    const branchMesh = new THREE.Mesh(branchGeom, material);
+    const alignBranch = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), branchDir);
+    branchMesh.quaternion.copy(alignBranch);
+    branchMesh.position.copy(center).addScaledVector(branchDir, L_branch / 2);
+    group.add(branchMesh);
+
+    return group;
   }
 
   private createRectElbow(

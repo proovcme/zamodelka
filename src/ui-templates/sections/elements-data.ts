@@ -460,7 +460,9 @@ export const elementsDataPanelTemplate: BUI.StatefullComponent<
       highlighter.clear("select");
       (window as any).selectedCustomElement = null;
       window.dispatchEvent(new CustomEvent("custom-element-selected", { detail: null }));
-      (window as any).terminalPlacementTool?.activateConnectionMode(selectedElement);
+      window.dispatchEvent(new CustomEvent("terminal-connect-start", {
+        detail: { terminal: selectedElement },
+      }));
     };
 
     const onConnectRadiator = () => {

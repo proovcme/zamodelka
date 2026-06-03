@@ -352,6 +352,8 @@ export abstract class BaseLineTool {
 
       this.updatePreview(this.startPoint, snappedPoint, isInvalidAngle);
       this.showCadTooltip(event, this.startPoint, snappedPoint, isInvalidAngle);
+    } else if (this.currentStep === "waiting-start") {
+      this.showCadTooltip(event, null, snappedPoint, false);
     } else {
       this.hideCadTooltip();
     }
@@ -725,36 +727,11 @@ export abstract class BaseLineTool {
 
   private showCadTooltip(
     event: MouseEvent,
-    start: THREE.Vector3,
+    start: THREE.Vector3 | null,
     end: THREE.Vector3,
     isInvalidAngle: boolean
   ) {
     if (!this.cadTooltip) return;
-
-    const lengthM = start.distanceTo(end);
-    const lengthMm = Math.round(lengthM * 1000);
-
-    const dir = new THREE.Vector3().subVectors(end, start);
-    dir.y = 0;
-    dir.normalize();
-
-    let angleDeg = 0;
-    if (this.lastSegmentDir) {
-      // Угол поворота относительно предыдущего сегмента
-      const angleRad = this.lastSegmentDir.angleTo(dir);
-      angleDeg = Math.round((angleRad * 180) / Math.PI);
-      
-      // Определяем направление поворота через векторное произведение
-      const cross = new THREE.Vector3().crossVectors(this.lastSegmentDir, dir);
-      if (cross.y < 0) {
-        angleDeg = -angleDeg;
-      }
-    } else {
-      // Абсолютный угол относительно оси X
-      const angleRad = Math.atan2(dir.z, dir.x);
-      angleDeg = Math.round((angleRad * 180) / Math.PI);
-      if (angleDeg < 0) angleDeg += 360;
-    }
 
     const chipStyle = "display:inline-flex;align-items:center;gap:4px;padding:2px 5px;border-radius:4px;background:rgba(148,163,184,0.12);color:#cbd5e1;white-space:nowrap;";
     const keyStyle = "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;font-weight:700;color:#e2e8f0;background:rgba(15,23,42,0.9);border:1px solid rgba(148,163,184,0.35);border-radius:3px;padding:1px 4px;";
@@ -767,24 +744,70 @@ export abstract class BaseLineTool {
           : "Свободно";
     const snapColor = this.snapContext.wallSnapped ? "#22d3ee" : this.snapContext.guideAxes.length > 0 ? "#fbbf24" : "#94a3b8";
 
-    let tooltipContent = `
-      <div style="display: flex; flex-direction: column; gap: 6px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-          <span style="color:${snapColor};font-weight:700;">${snapLabel}</span>
-          <span style="color:#94a3b8;">${lengthMm} мм</span>
-        </div>
-        <div style="display:flex;gap:8px;color:#cbd5e1;">
-          <span>Угол <b style="color:#34d399;">${Math.abs(angleDeg)}°</b></span>
-          <span>Отм. <b style="color:#38bdf8;">${Math.round(end.y * 1000)} мм</b></span>
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;">
-          <span style="${chipStyle}"><span style="${keyStyle}">ЛКМ</span> точка</span>
-          <span style="${chipStyle}"><span style="${keyStyle}">цифры</span> длина</span>
-          <span style="${chipStyle}"><span style="${keyStyle}">Tab</span> длина/отметка</span>
-          <span style="${chipStyle}"><span style="${keyStyle}">Alt</span> IFC</span>
-          <span style="${chipStyle}"><span style="${keyStyle}">Esc</span> выход</span>
-        </div>
-    `;
+    let tooltipContent = "";
+
+    if (start) {
+      const lengthM = start.distanceTo(end);
+      const lengthMm = Math.round(lengthM * 1000);
+
+      const dir = new THREE.Vector3().subVectors(end, start);
+      dir.y = 0;
+      dir.normalize();
+
+      let angleDeg = 0;
+      if (this.lastSegmentDir) {
+        // Угол поворота относительно предыдущего сегмента
+        const angleRad = this.lastSegmentDir.angleTo(dir);
+        angleDeg = Math.round((angleRad * 180) / Math.PI);
+        
+        // Определяем направление поворота через векторное произведение
+        const cross = new THREE.Vector3().crossVectors(this.lastSegmentDir, dir);
+        if (cross.y < 0) {
+          angleDeg = -angleDeg;
+        }
+      } else {
+        // Абсолютный угол относительно оси X
+        const angleRad = Math.atan2(dir.z, dir.x);
+        angleDeg = Math.round((angleRad * 180) / Math.PI);
+        if (angleDeg < 0) angleDeg += 360;
+      }
+
+      tooltipContent = `
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <span style="color:${snapColor};font-weight:700;">${snapLabel}</span>
+            <span style="color:#94a3b8;">${lengthMm} мм</span>
+          </div>
+          <div style="display:flex;gap:8px;color:#cbd5e1;">
+            <span>Угол <b style="color:#34d399;">${Math.abs(angleDeg)}°</b></span>
+            <span>Отм. <b style="color:#38bdf8;">${Math.round(end.y * 1000)} мм</b></span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            <span style="${chipStyle}"><span style="${keyStyle}">ЛКМ</span> точка</span>
+            <span style="${chipStyle}"><span style="${keyStyle}">цифры</span> длина</span>
+            <span style="${chipStyle}"><span style="${keyStyle}">Tab</span> длина/отметка</span>
+            <span style="${chipStyle}"><span style="${keyStyle}">Alt</span> IFC</span>
+            <span style="${chipStyle}"><span style="${keyStyle}">Esc</span> выход</span>
+          </div>
+      `;
+    } else {
+      tooltipContent = `
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <span style="color:${snapColor};font-weight:700;">${snapLabel}</span>
+            <span style="color:#94a3b8;">Начало трассы</span>
+          </div>
+          <div style="display:flex;gap:8px;color:#cbd5e1;">
+            <span>Отм. <b style="color:#38bdf8;">${Math.round(end.y * 1000)} мм</b></span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            <span style="${chipStyle}"><span style="${keyStyle}">ЛКМ</span> начать</span>
+            <span style="${chipStyle}"><span style="${keyStyle}">Tab</span> уровни</span>
+            <span style="${chipStyle}"><span style="${keyStyle}">Alt</span> IFC отметка</span>
+            <span style="${chipStyle}"><span style="${keyStyle}">Esc</span> выход</span>
+          </div>
+      `;
+    }
 
     if (this.inputMode === "length" && this.lengthInputBuffer) {
       tooltipContent += `
