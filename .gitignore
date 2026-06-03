@@ -7,6 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Node
 node_modules
 dist
 dist-ssr
@@ -23,4 +24,27 @@ dist-ssr
 *.sln
 *.sw?
 
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+server/.venv/
+.venv/
+*.egg-info/
+
+# Database (contains project data)
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# AI assistant config (local settings)
+.claude/settings.local.json
+
+# Build artifacts
 resources
