@@ -229,7 +229,12 @@ export class ConnectionNodes {
 
     for (let i = elements.length - 1; i >= 0; i--) {
       const e = elements[i];
-      if (e.deviceId === terminal.id || e.id === pickedDuct.id) {
+      const isOldTerminalBranch =
+        e.deviceId === terminal.id ||
+        (terminal.connectionId && e.connectionId === terminal.connectionId) ||
+        (typeof e.id === "string" &&
+          (e.id.startsWith(`duct-branch-${terminal.id}-`) || e.id.startsWith(`flex-${terminal.id}-`)));
+      if (isOldTerminalBranch || e.id === pickedDuct.id) {
         elements.splice(i, 1);
       }
     }
@@ -263,6 +268,9 @@ export class ConnectionNodes {
           end: [Math.round(flexStart.x), Math.round(flexStart.y), Math.round(flexStart.z)],
           system: pickedDuct.system || terminal.system || "Приточный",
           material: pickedDuct.material || "steel_galv",
+          deviceId: terminal.id,
+          connectionId,
+          connectionNodeType: "diffuser_flex",
         });
       }
 
@@ -319,6 +327,9 @@ export class ConnectionNodes {
           end: [Math.round(elbow.x), Math.round(elbow.y), Math.round(elbow.z)],
           system: pickedDuct.system || terminal.system || "Приточный",
           material: pickedDuct.material || "steel_galv",
+          deviceId: terminal.id,
+          connectionId,
+          connectionNodeType: "diffuser_flex",
         });
       }
 
@@ -333,6 +344,9 @@ export class ConnectionNodes {
           end: [Math.round(flexStart.x), Math.round(flexStart.y), Math.round(flexStart.z)],
           system: pickedDuct.system || terminal.system || "Приточный",
           material: pickedDuct.material || "steel_galv",
+          deviceId: terminal.id,
+          connectionId,
+          connectionNodeType: "diffuser_flex",
         });
       }
 

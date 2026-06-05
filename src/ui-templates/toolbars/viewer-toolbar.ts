@@ -1779,7 +1779,7 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
       label=${label}
       tooltip-title=${label}
       ?active=${active}
-      style="height: 2.5rem;"
+      style="height: 2.5rem; flex: 0 0 auto;"
       @click=${onClick}
     ></bim-button>
   `;
@@ -1864,8 +1864,8 @@ export const viewerToolbarTemplate: BUI.StatefullComponent<
   `;
 
   const activeDock = activeDiscipline ? BUI.html`
-    <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: center; max-width: calc(100vw - 2rem);">
-      <div style="display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.45rem; align-items: center; width: min(calc(100vw - 3rem), 100%); padding: 0.25rem;">
+    <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: center; width: min(76rem, calc(100vw - 2rem)); max-width: calc(100vw - 2rem);">
+      <div style="display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.45rem; align-items: center; width: 100%; padding: 0.25rem; box-sizing: border-box;">
         <bim-button icon="mdi:close" label="Выход" tooltip-title="Выход из режима" style="height: 2.5rem; flex: 0 0 auto; --bim-ui_accent-base: #64748b;" @click=${exitDiscipline}></bim-button>
         <div style="display: flex; gap: 0.45rem; align-items: center; overflow-x: auto; min-width: 0; padding-bottom: 0.1rem;">
         <div style="height: 1.7rem; width: 1px; background: var(--bim-ui_bg-contrast-30); flex: 0 0 auto;"></div>

@@ -248,47 +248,22 @@ const flowDisciplines: FlowDisciplineDef[] = [
   прямой кабель. Геометрию маршрута подтверждать ВИЗУАЛЬНО.
 - Принцип заказчика: фикс-библиотека узлов с ОГРАНИЧЕННЫМИ параметрами, БЕЗ генерации на лету;
   цель подключения — куда УКАЗАЛ пользователь (как у диффузоров), а не авто-поиск.
-- **Долг/TODO (модульно!):** UI connect-флоу для `radiator` и `terminal` — два почти одинаковых
-  блока в `main.ts` (~400 строк зеркального стейта). Перед добавлением UI для `socket` их надо
-  СНАЧАЛА свести в ОДИН параметризованный движок флоу (config: device-фаза → target-фаза →
-  `connect`), как `flowDisciplines` в тулбаре. Третья копия = «куски кода ради кусков кода».
+#### 5.8.1 ConnectFlow — UI-стейт подключения
+`ConnectionNodes` (§5.8) — математика узла. Пользовательский сценарий «выбери прибор → выбери цель
+→ подключил → снова выбери прибор» вынесен в единый `ConnectFlow` (`src/bim-components/ConnectFlow.ts`).
+В `main.ts` сейчас заведены конфиги для `radiator`, `terminal` и `ac`.
 
-#### 5.8.1 Connect-флоу в `main.ts` — КАК РАБОТАТЬ С ЭТИМ УЖАСОМ
-`ConnectionNodes` (§5.8) — это только МАТЕМАТИКА узла. Вторая половина — **UI-стейт-машина в
-`main.ts`**, которая водит пользователя «выбери прибор → выбери цель → подключил». Сейчас она
-СКОПИРОВАНА дважды (radiator + terminal), отсюда «ужас». Понимай её как ОДИН паттерн, повторённый
-два раза; различаются только: тип прибора, тип цели, цвета/тексты, collect-фильтр.
+**Двухфазный жизненный цикл:**
+1. Событие `X-connect-toggle/start` активирует flow, подсвечивает подходящие приборы и показывает
+   tooltip рядом с курсором.
+2. Первый клик выбирает прибор; flow гасит подсветку приборов и подсвечивает совместимые цели.
+3. Второй клик выбирает трассу/цель; вызывается `ConnectionNodes.connect(projectElements, device, target)`.
+4. После удачного узла порядок обязателен: `FittingGenerator.generateFittings` →
+   `ductDrawingTool.renderAll` → `elements-updated` → `rearm()`.
+5. `Esc`, повторный toggle или смена инструмента отменяют flow.
 
-**Двухфазный жизненный цикл (на примере radiator, у terminal — 1:1 то же):**
-1. Событие `radiator-connect-toggle`/`-start{detail.radiator}` → `activateRadiatorConnectMode()`:
-   `radiatorConnectToolActive=true`, подсветить ВСЕ приборы-кандидаты (`highlightRadiatorTargets`),
-   слать `radiator-connect-started`.
-2. `mousedown`, фаза 1 (`!radiatorConnectTarget`): рейкаст по `collectRadiatorMeshes()` → выбран
-   прибор → `setRadiatorConnectTarget(rad)` → погасить подсветку приборов, подсветить трубы
-   (`highlightCompatiblePipes`).
-3. `mousedown`, фаза 2 (есть target): рейкаст по `collectConnectablePipeMeshes()` → выбрана труба
-   → **`ConnectionNodes.connect(projectElements, target, pickedPipe)`** → `FittingGenerator`
-   → `ductDrawingTool.renderAll` → `elements-updated` → `rearmRadiatorConnectMode()` (снова фаза 1,
-   для серийного подключения). См. §17.14 — порядок после `connect` обязателен.
-4. ESC / повторный toggle / смена инструмента → `clearRadiatorConnectMode()` (гасит подсветку,
-   снимает tooltip, шлёт `-cancelled`).
-
-**Что ДУБЛИРУЕТСЯ на каждую дисциплину (ищи по префиксу `radiator`/`terminal`):**
-- Стейт (module-level): `XConnectToolActive`, `XConnectTarget`, `XConnectTooltip`, две Map
-  подсветки `XTargetHighlights` + `X{Pipe|Duct}Highlights`.
-- Функции (зеркальные, отличаются ТОЛЬКО collect-фильтром и цветом — у highlight'ов цвета вообще
-  ОДИНАКОВЫЕ `0x38bdf8`/`0xfbbf24`): `ensure/hide/remove/showXConnectTooltip`,
-  `getXConnectHoverElement`, `updateXConnectCursor`, `updateXConnectState`, `collect*Meshes`,
-  `highlightXTargets`/`highlightCompatibleY`, `clear/set/activate/rearmXConnectMode`.
-- Ветка в общем `mousedown`-обработчике (`if (XConnectToolActive) { … }`).
-- События на `window`: вход `X-connect-start|toggle|stop`, выход `X-connect-started|changed|cancelled`.
-
-**Если ПРОСТО надо поправить существующий флоу** — правь обе копии синхронно (иначе разъедутся).
-**Если надо ДОБАВИТЬ дисциплину (кондеи/розетки)** — НЕ копируй третий раз (запрет, §17.15).
-Цель-рефактор (ТЗ §23 FR-PLACE-2): один `ConnectFlow`, конфиг на дисциплину
-`{deviceType, targetType, collectDevice, collectTarget, deviceColor, targetColor, phaseTexts}`,
-внутри — общий двухфазный автомат, вызывающий `ConnectionNodes.connect`. Подсветка/коллект/tooltip
-параметризуются (они уже идентичны). Тогда кондей = одна строка конфига, как `flowDisciplines`.
+**Добавить новый connect-сценарий** = добавить builder/case в `ConnectionNodes.connect` и один конфиг
+`ConnectFlow`. Не копировать старые ручные state-machine блоки.
 
 ### 5.9 Движок листов ГОСТ (`ui-templates/sheets/`)
 Отдельный движок: `getGostSheetLayout(format, standard, orientation)` + `renderGostSheetSvg(opts)`.
@@ -303,14 +278,15 @@ const flowDisciplines: FlowDisciplineDef[] = [
 (`duct/wall/equipment/tray/pipe/electrical/terminal/accessory/twoPipe`). Уровни —
 `window.projectLevels` (map имя→мм); смена уровня/отметки = событие `elevation-updated`
 (`{detail:{elevation}}`). Инструмент размещения строит плоскость по `this.elevation` (пример —
-`TerminalPlacementTool`, плоскость `y = elevation/1000`). **Дыра:** нижняя секция тулбара при
-размещении оконечки/кондея не показывает селектор уровня/отметки — см. ТЗ §23 FR-PLACE-1.
+`TerminalPlacementTool`, плоскость `y = elevation/1000`). Нижняя секция flow-панели показывает
+контролы уровня/отметки для активных placement-инструментов.
 
-### 5.11 Хендофф для Гемини — см. `TZ_FIELD_SKETCH.md` §23
-Порядок задач: **FR-PLACE-1** (UI отметки/уровня для размещения) → **FR-PLACE-2** (свести
-radiator/terminal connect-флоу в ОДИН движок `ConnectFlow`) → **FR-CONNECT-AC** (кондеи через тот
-же движок, builder готов) → **FR-VRV** (внешний блок `vrv_outdoor` + фреоновый узел + VRV-система).
-Принцип: никаких третьих копий connect-флоу — только конфиг в едином движке.
+### 5.11 Текущий статус connect/placement задач
+Сделано: placement-отметки в flow-панели, единый `ConnectFlow`, подключение радиаторов,
+диффузоров/решеток, кондиционеров и базовый VRV-flow. Дальше по этому слою:
+- довести электрический flow `socket` → `panel` до UI, builder уже есть;
+- усилить VRV до topology v2: общая магистраль + refnet/Y-врезки;
+- держать правило: новый connect-сценарий добавляется конфигом `ConnectFlow`, не копией state-machine.
 
 ---
 

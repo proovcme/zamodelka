@@ -1,7 +1,26 @@
 {
-  "name": "bim-app",
+  "name": "zamodelka",
   "version": "0.0.1",
+  "description": "Flow-first browser modeller for buildings and MEP systems.",
   "type": "module",
+  "homepage": "https://github.com/proovcme/zamodelka#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/proovcme/zamodelka.git"
+  },
+  "bugs": {
+    "url": "https://github.com/proovcme/zamodelka/issues"
+  },
+  "keywords": [
+    "bim",
+    "cad",
+    "mep",
+    "threejs",
+    "thatopen",
+    "vite",
+    "flow-mode",
+    "building-modeller"
+  ],
   "scripts": {
     "dev": "vite --host",
     "build": "tsc && vite build",
